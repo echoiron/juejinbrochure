@@ -1,0 +1,164 @@
+<h1 class="heading">Web UI 之首页页面拼接与 URL 跳转处理</h1>
+<p>编写完首页的功能之后，要将页面与数据结合起来，拼接成完整的<code>html</code>并渲染呈现。</p>
+<h2 class="heading">界面改造-首页页面拼接</h2>
+<p>将上面定义的静态资源方法<code>files</code>与数据计算方法<code>features</code>导入<code>website.py</code>：</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-keyword">from</span> .websource <span class="hljs-keyword">import</span> files
+<span class="hljs-keyword">from</span> .webtools <span class="hljs-keyword">import</span> features
+</code></pre><p>将 website.py 中的 microsec_trunc 方法放到 webtools.py 中，并且在 website.py 中将其导入：</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-keyword">from</span> .webtools <span class="hljs-keyword">import</span>  microsec_trunc
+</code></pre><p>接着将静态资源拆包，考虑到 Jobs 当中还需要用到静态资源，所以拆包操作放在 Root 类之前：</p>
+<pre><code class="hljs Python" lang="Python">HEADER_HTML, FOOTERS_HTML, INDEX_HTML, JOBS_HTML, FEATURE_HTML, \
+DOCUMENTS_HTML, STYLE_CSS, RESET_CSS, JQUERY_JS, MAIN_JS, \
+MODERN_JS, VELOCITY_MIN_JS, SVG = files
+
+<span class="hljs-comment"># class Root(resource.Resource):</span>
+<span class="hljs-comment"># ... ...</span>
+</code></pre><p>然后到 Home 类的 render_GET 中将数据计算结果拆包：</p>
+<pre><code class="hljs Python" lang="Python">    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">render_GET</span><span class="hljs-params">(self, request)</span>:</span>
+        pending, running, finished, average, shortest, \
+        longest, projects, spiders, ranks, dps, \
+        lpn, lsn, invoked_spider, un_invoked_spider, most_record = features(self)
+</code></pre><p>因为 HTML 中表格部分<code>&lt;tr&gt;&lt;td&gt;&lt;/td&gt;&lt;/tr&gt;</code>结构用 Python 代码根据计算结果动态生成</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/10/15/1667670018dc5d86?w=1440&amp;h=442&amp;f=png&amp;s=50418"><figcaption></figcaption></figure>
+所以 HTML 表格部分代码中只保留<code>&lt;table&gt;&lt;tbody&gt;...&lt;/tbody&gt;&lt;/table&gt;</code>结构。这里到 <code>webtools.py</code> 中定义一个动态生成<code>&lt;tr&gt;&lt;td&gt;&lt;/td&gt;&lt;/tr&gt;</code>结构的函数<code>make_table</code>:<p></p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">make_table</span><span class="hljs-params">(values)</span>:</span>
+    tds = []
+    <span class="hljs-keyword">for</span> v <span class="hljs-keyword">in</span> values:
+        project_name, spider_name, number = v.get(<span class="hljs-string">"project"</span>), v.get(<span class="hljs-string">"spider"</span>), v.get(<span class="hljs-string">"number"</span>)
+        aps = <span class="hljs-string">"&lt;tr&gt;&lt;td&gt;&lt;i&gt;{project_name}&lt;/i&gt;&lt;/td&gt;&lt;td&gt;{spider_name}&lt;/td&gt;&lt;td&gt;{spider_num}&lt;/td&gt;&lt;/tr&gt;"</span>.format(
+            project_name=project_name, spider_name=spider_name, spider_num=number)
+        tds.append(aps)
+    table = <span class="hljs-string">""</span>.join(tds) <span class="hljs-keyword">if</span> len(tds) <span class="hljs-keyword">else</span> <span class="hljs-string">""</span>
+    <span class="hljs-keyword">return</span> table
+</code></pre><p>它会根据传入的值进行计算，循环获取其中的爬虫项目名、爬虫名与爬虫数量，用 format 的方式将 HTML 与数值结合生成<code>&lt;tr&gt;&lt;td&gt;&lt;/td&gt;&lt;/tr&gt;</code>结构的数据。然后在 Home 类的 render 中获取结果列表：</p>
+<pre><code class="hljs Python" lang="Python"> <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">render_GET</span><span class="hljs-params">(self, request)</span>:</span>
+        pending, running, finished, average, shortest, \
+        longest, projects, spiders, ranks, dps, \
+        lpn, lsn, invoked_spider, un_invoked_spider, most_record = features(self)
+        table = make_table(dps)
+</code></pre><h2 class="heading">界面重构-首页页面拼接之 URL 跳转</h2>
+<p>在 Scrapyd 首页中，URL 跳转使用的是<code>&lt;a href="/jobs"&gt;Jobs&lt;/a&gt;</code>，考虑到权限验证的请求是需要携带正确的用户名、密码，所以需要根据访问者请求参数生成对应的 URL 跳转地址，既要考虑到用户未携带参数又要考虑用户携带参数，代码逻辑如下：</p>
+<ul>
+<li>从 request 中获取用户名和密码</li>
+<li>通过循环为每一个需要用到的 URL 地址加上用户名和密码，生成新的 URL 地址列表。</li>
+<li>这样设置的好处是访问者只有在携带正确用户名和密码后才能一路畅通的跳转各个 URL 地址</li>
+<li>如果使用了错误的用户名和密码或不填写用户名和密码，那么后续的 URL 跳转也将不会有用户名和密码信息，这样既保证了访问者使用时的流畅性又能够保证权限验证不会被绕过。</li>
+</ul>
+<p>在<code>webtools.py</code>中新建函数<code>make_urls</code>:</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">make_urls</span><span class="hljs-params">(hosts)</span>:</span>
+    urls = []
+    <span class="hljs-keyword">for</span> x <span class="hljs-keyword">in</span> [<span class="hljs-string">"/"</span>, <span class="hljs-string">"/jobs"</span>, <span class="hljs-string">"/feature"</span>, <span class="hljs-string">"/documents"</span>]:
+        uri = <span class="hljs-string">"?un=%s&amp;pwd=%s"</span> % (hosts.get(<span class="hljs-string">"un"</span>), hosts.get(<span class="hljs-string">"pwd"</span>))
+        <span class="hljs-comment"># "http://" + hosts.get("host") + ":" + hosts.get("port") + x + uri 获取host中的ip会造成云服务器跳转失败</span>
+        url = x + uri
+        urls.append(url)
+    <span class="hljs-keyword">return</span> urls
+</code></pre><p>跟以往一样，在 Home 类中可以对<code>make_urls</code>的返回结果进行拆包使用了么？还不可以，<code>make_urls(host)</code>接收参数 host，从 host 信息中取出对应参数的用户名和密码。这里在<code>webtools.py</code>中再新建名为<code>host_information</code>的函数：</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">host_information</span><span class="hljs-params">(request)</span>:</span>
+    host, port, un, pwd = request.host.host, str(request.host.port), <span class="hljs-string">"un"</span>, <span class="hljs-string">"pwd"</span>
+    <span class="hljs-keyword">if</span> request.args.get(bytes(un, encoding=<span class="hljs-string">"utf-8"</span>)) <span class="hljs-keyword">and</span> request.args.get(bytes(pwd, encoding=<span class="hljs-string">"utf-8"</span>)):
+        username = str(request.args.get(bytes(un, encoding=<span class="hljs-string">"utf-8"</span>))[<span class="hljs-number">0</span>], encoding=<span class="hljs-string">"utf-8"</span>)
+        password = str(request.args.get(bytes(pwd, encoding=<span class="hljs-string">"utf-8"</span>))[<span class="hljs-number">0</span>], encoding=<span class="hljs-string">"utf-8"</span>)
+        <span class="hljs-keyword">return</span> {<span class="hljs-string">"host"</span>: host, <span class="hljs-string">"port"</span>: port, <span class="hljs-string">"un"</span>: username, <span class="hljs-string">"pwd"</span>: password}
+    <span class="hljs-keyword">return</span> {<span class="hljs-string">"host"</span>: host, <span class="hljs-string">"port"</span>: port, <span class="hljs-string">"username"</span>: <span class="hljs-string">""</span>, <span class="hljs-string">"pwd"</span>: <span class="hljs-string">""</span>}
+</code></pre><p>其中的代码逻辑是从 request 请求信息中获取关键字<code>un</code>、<code>pwd</code>对应的值，并且从 request.host 可以直接获取 host 和 port 信息，最后以 dict 的形式将结果返回。同时也在代码中对请求参数进行了简化，因为配置文件中的参数设定是<code>auth_username</code>和<code>auth_password</code>,这里则限定为<code>un</code>和<code>pwd</code>。</p>
+<p>通过上面的两个方法获得了动态的 URL， 在 website.py 中引入这两个方法并在 Home 类的 render 中使用：</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-keyword">from</span> .webtools <span class="hljs-keyword">import</span>  microsec_trunc, host_information, make_urls
+
+ <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">render_GET</span><span class="hljs-params">(self, request)</span>:</span>
+        pending, running, finished, average, shortest, \
+        longest, projects, spiders, ranks, dps, \
+        lpn, lsn, invoked_spider, un_invoked_spider, most_record = features(self)
+        table = make_table(dps)
+        hosts = host_information(request)  <span class="hljs-comment"># host以及auth信息</span>
+        home_uri, jobs_uri, feature_uri, documents_uri = make_urls(hosts)
+</code></pre><p>URL 跳转地址需要在 HTML 的导航部分使用，由于导航的选中状态是用 class 属性来改变，所以 HTML 中导航部分的代码需要单独提取出来。然后将 template 目录中的<code>header.html</code>、<code>index.html</code>、<code>footer.html</code>进行拼接，在拼接时将所需要渲染的数据通过 format 的方式填充：</p>
+<pre><code class="hljs Python" lang="Python">nav = <span class="hljs-string">"""
+    &lt;ul&gt;
+    &lt;li&gt;
+    &lt;a href={home_uri} class="selected" id="home"&gt;
+    &lt;svg class="nc-icon outline" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" width="24px" height="24px" viewBox="0 0 24 24"&gt;&lt;g transform="translate(0, 0)"&gt; &lt;polygon fill="none" stroke="#4a5261" stroke-width="2" stroke-linecap="square" stroke-miterlimit="10" points="12,2 3,10 3,23 9,23 9,16 15,16 15,23 21,23 21,10 " stroke-linejoin="miter"&gt;&lt;/polygon&gt; &lt;/g&gt;&lt;/svg&gt;
+    Home&lt;/a&gt;
+    &lt;/li&gt;
+    &lt;li&gt;
+    &lt;a href={jobs_uri} class="item" id="jobs"&gt;
+    &lt;svg class="nc-icon outline" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" width="24px" height="24px" viewBox="0 0 24 24"&gt;&lt;g transform="translate(0, 0)"&gt; &lt;polyline data-color="color-2" fill="none" stroke="#4a5261" stroke-width="2" stroke-linecap="square" stroke-miterlimit="10" points=" 16,7 16,2 8,2 8,7 " stroke-linejoin="miter"&gt;&lt;/polyline&gt; &lt;rect x="1" y="7" fill="none" stroke="#4a5261" stroke-width="2" stroke-linecap="square" stroke-miterlimit="10" width="22" height="15" stroke-linejoin="miter"&gt;&lt;/rect&gt; &lt;line fill="none" stroke="#4a5261" stroke-width="2" stroke-linecap="square" stroke-miterlimit="10" x1="5" y1="7" x2="5" y2="22" stroke-linejoin="miter"&gt;&lt;/line&gt; &lt;line fill="none" stroke="#4a5261" stroke-width="2" stroke-linecap="square" stroke-miterlimit="10" x1="19" y1="7" x2="19" y2="22" stroke-linejoin="miter"&gt;&lt;/line&gt; &lt;/g&gt;&lt;/svg&gt;
+    Jobs&lt;/a&gt;
+    &lt;/li&gt;
+    &lt;li&gt;
+    &lt;a href={feature_uri} class="item" id="feature"&gt;
+    &lt;svg class="nc-icon outline" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" width="24px" height="24px" viewBox="0 0 24 24"&gt;&lt;g transform="translate(0, 0)"&gt; &lt;rect x="1" y="1" fill="none" stroke="#4a5261" stroke-width="2" stroke-linecap="square" stroke-miterlimit="10" width="22" height="22" stroke-linejoin="miter"&gt;&lt;/rect&gt; &lt;rect data-color="color-2" x="5" y="5" fill="none" stroke="#4a5261" stroke-width="2" stroke-linecap="square" stroke-miterlimit="10" width="5" height="5" stroke-linejoin="miter"&gt;&lt;/rect&gt; &lt;rect data-color="color-2" x="14" y="5" fill="none" stroke="#4a5261" stroke-width="2" stroke-linecap="square" stroke-miterlimit="10" width="5" height="5" stroke-linejoin="miter"&gt;&lt;/rect&gt; &lt;rect data-color="color-2" x="5" y="14" fill="none" stroke="#4a5261" stroke-width="2" stroke-linecap="square" stroke-miterlimit="10" width="5" height="5" stroke-linejoin="miter"&gt;&lt;/rect&gt; &lt;rect data-color="color-2" x="14" y="14" fill="none" stroke="#4a5261" stroke-width="2" stroke-linecap="square" stroke-miterlimit="10" width="5" height="5" stroke-linejoin="miter"&gt;&lt;/rect&gt; &lt;/g&gt;&lt;/svg&gt;
+    ArtDoc&lt;/a&gt;
+    &lt;/li&gt;
+    &lt;/ul&gt;
+        """</span>.format(home_uri=home_uri, jobs_uri=jobs_uri, feature_uri=feature_uri,
+                   documents_uri=documents_uri)
+header = HEADER_HTML.format(style_css=STYLE_CSS, reset_css=RESET_CSS, nav=nav)
+
+index = INDEX_HTML.format(projects=dps, nop=pending, nor=running, nof=finished, average=average,
+                      shortest=shortest, longest=longest, lpn=lpn, lsn=lsn, most_spider=most_record[<span class="hljs-number">0</span>],
+                      most_num=most_record[<span class="hljs-number">1</span>], invoked_spider=<span class="hljs-string">","</span>.join(invoked_spider),
+                      un_invoked_spider=<span class="hljs-string">","</span>.join(un_invoked_spider), table=table, ranks=ranks,
+                      feature_uri=feature_uri)
+footers = FOOTERS_HTML
+</code></pre><p>而在 HTML 中则需要使用 format 占位符的写法将所需渲染的数据位置进行标记，例如填充爬虫调用情况数据：</p>
+<pre><code class="hljs html" lang="html"><span class="hljs-tag">&lt;<span class="hljs-name">div</span> <span class="hljs-attr">class</span>=<span class="hljs-string">"show-data"</span>&gt;</span>
+	<span class="hljs-tag">&lt;<span class="hljs-name">div</span> <span class="hljs-attr">class</span>=<span class="hljs-string">"show-data-middle"</span>&gt;</span>
+	<span class="hljs-tag">&lt;<span class="hljs-name">div</span> <span class="hljs-attr">class</span>=<span class="hljs-string">"sdm-top"</span>&gt;</span>
+		<span class="hljs-tag">&lt;<span class="hljs-name">p</span>&gt;</span><span class="hljs-tag">&lt;<span class="hljs-name">span</span>&gt;</span>被调用过的爬虫 : <span class="hljs-tag">&lt;/<span class="hljs-name">span</span>&gt;</span><span class="hljs-tag">&lt;<span class="hljs-name">span</span>&gt;</span>{invoked_spider}<span class="hljs-tag">&lt;/<span class="hljs-name">span</span>&gt;</span><span class="hljs-tag">&lt;/<span class="hljs-name">p</span>&gt;</span>
+		<span class="hljs-tag">&lt;<span class="hljs-name">p</span>&gt;</span><span class="hljs-tag">&lt;<span class="hljs-name">span</span>&gt;</span>被调用次数最多 : <span class="hljs-tag">&lt;/<span class="hljs-name">span</span>&gt;</span><span class="hljs-tag">&lt;<span class="hljs-name">span</span>&gt;</span>{most_spider},{most_num}次<span class="hljs-tag">&lt;/<span class="hljs-name">span</span>&gt;</span><span class="hljs-tag">&lt;/<span class="hljs-name">p</span>&gt;</span>
+		<span class="hljs-tag">&lt;<span class="hljs-name">p</span>&gt;</span><span class="hljs-tag">&lt;<span class="hljs-name">span</span>&gt;</span>未被调用的爬虫 : <span class="hljs-tag">&lt;/<span class="hljs-name">span</span>&gt;</span><span class="hljs-tag">&lt;<span class="hljs-name">span</span>&gt;</span>{un_invoked_spider}<span class="hljs-tag">&lt;/<span class="hljs-name">span</span>&gt;</span><span class="hljs-tag">&lt;/<span class="hljs-name">p</span>&gt;</span>
+	<span class="hljs-tag">&lt;/<span class="hljs-name">div</span>&gt;</span>
+<span class="hljs-tag">&lt;/<span class="hljs-name">div</span>&gt;</span>
+</code></pre><p><code>index.html</code>中<strong>其他需要数据填充的地方</strong>按照上方 HTML 代码的 format 形式进行<strong>填充</strong>即可，否则后续数据渲染会报出异常。</p>
+<p>最后，根据 CustomResource 的设定，将所需渲染的内容以 bytes 类型返回，所以整个 Home 类的完整代码如下：</p>
+<pre><code class="hljs bash" lang="bash">class Home(CustomResource):
+
+    def __init__(self, root, local_items):
+        resource.Resource.__init__(self)
+        self.root = root
+        self.local_items = local_items
+
+    @decorator_auth
+    def render_GET(self, request):
+        pending, running, finished, average, shortest, \
+        longest, projects, spiders, ranks, dps, \
+        lpn, lsn, invoked_spider, un_invoked_spider, most_record = features(self)
+
+        table = make_table(dps)
+        hosts = host_information(request)  <span class="hljs-comment"># host以及auth信息</span>
+        home_uri, jobs_uri, feature_uri, documents_uri = make_urls(hosts)
+
+        nav = <span class="hljs-string">""</span><span class="hljs-string">"
+                &lt;ul&gt;
+                    &lt;li&gt;
+                    &lt;a href={home_uri} class="</span>selected<span class="hljs-string">" id="</span>home<span class="hljs-string">"&gt;
+                    &lt;svg class="</span>nc-icon outline<span class="hljs-string">" xmlns="</span>http://www.w3.org/2000/svg<span class="hljs-string">" xmlns:xlink="</span>http://www.w3.org/1999/xlink<span class="hljs-string">" x="</span>0px<span class="hljs-string">" y="</span>0px<span class="hljs-string">" width="</span>24px<span class="hljs-string">" height="</span>24px<span class="hljs-string">" viewBox="</span>0 0 24 24<span class="hljs-string">"&gt;&lt;g transform="</span>translate(0, 0)<span class="hljs-string">"&gt; &lt;polygon fill="</span>none<span class="hljs-string">" stroke="</span><span class="hljs-comment">#4a5261" stroke-width="2" stroke-linecap="square" stroke-miterlimit="10" points="12,2 3,10 3,23 9,23 9,16 15,16 15,23 21,23 21,10 " stroke-linejoin="miter"&gt;&lt;/polygon&gt; &lt;/g&gt;&lt;/svg&gt;</span>
+                    Home&lt;/a&gt;
+                    &lt;/li&gt;
+                    &lt;li&gt;
+                    &lt;a href={jobs_uri} class=<span class="hljs-string">"item"</span> id=<span class="hljs-string">"jobs"</span>&gt;
+                    &lt;svg class=<span class="hljs-string">"nc-icon outline"</span> xmlns=<span class="hljs-string">"http://www.w3.org/2000/svg"</span> xmlns:xlink=<span class="hljs-string">"http://www.w3.org/1999/xlink"</span> x=<span class="hljs-string">"0px"</span> y=<span class="hljs-string">"0px"</span> width=<span class="hljs-string">"24px"</span> height=<span class="hljs-string">"24px"</span> viewBox=<span class="hljs-string">"0 0 24 24"</span>&gt;&lt;g transform=<span class="hljs-string">"translate(0, 0)"</span>&gt; &lt;polyline data-color=<span class="hljs-string">"color-2"</span> fill=<span class="hljs-string">"none"</span> stroke=<span class="hljs-string">"#4a5261"</span> stroke-width=<span class="hljs-string">"2"</span> stroke-linecap=<span class="hljs-string">"square"</span> stroke-miterlimit=<span class="hljs-string">"10"</span> points=<span class="hljs-string">" 16,7 16,2 8,2 8,7 "</span> stroke-linejoin=<span class="hljs-string">"miter"</span>&gt;&lt;/polyline&gt; &lt;rect x=<span class="hljs-string">"1"</span> y=<span class="hljs-string">"7"</span> fill=<span class="hljs-string">"none"</span> stroke=<span class="hljs-string">"#4a5261"</span> stroke-width=<span class="hljs-string">"2"</span> stroke-linecap=<span class="hljs-string">"square"</span> stroke-miterlimit=<span class="hljs-string">"10"</span> width=<span class="hljs-string">"22"</span> height=<span class="hljs-string">"15"</span> stroke-linejoin=<span class="hljs-string">"miter"</span>&gt;&lt;/rect&gt; &lt;line fill=<span class="hljs-string">"none"</span> stroke=<span class="hljs-string">"#4a5261"</span> stroke-width=<span class="hljs-string">"2"</span> stroke-linecap=<span class="hljs-string">"square"</span> stroke-miterlimit=<span class="hljs-string">"10"</span> x1=<span class="hljs-string">"5"</span> y1=<span class="hljs-string">"7"</span> x2=<span class="hljs-string">"5"</span> y2=<span class="hljs-string">"22"</span> stroke-linejoin=<span class="hljs-string">"miter"</span>&gt;&lt;/line&gt; &lt;line fill=<span class="hljs-string">"none"</span> stroke=<span class="hljs-string">"#4a5261"</span> stroke-width=<span class="hljs-string">"2"</span> stroke-linecap=<span class="hljs-string">"square"</span> stroke-miterlimit=<span class="hljs-string">"10"</span> x1=<span class="hljs-string">"19"</span> y1=<span class="hljs-string">"7"</span> x2=<span class="hljs-string">"19"</span> y2=<span class="hljs-string">"22"</span> stroke-linejoin=<span class="hljs-string">"miter"</span>&gt;&lt;/line&gt; &lt;/g&gt;&lt;/svg&gt;
+                    Jobs&lt;/a&gt;
+                    &lt;/li&gt;
+                    &lt;li&gt;
+                    &lt;a href={feature_uri} class=<span class="hljs-string">"item"</span> id=<span class="hljs-string">"feature"</span>&gt;
+                    &lt;svg class=<span class="hljs-string">"nc-icon outline"</span> xmlns=<span class="hljs-string">"http://www.w3.org/2000/svg"</span> xmlns:xlink=<span class="hljs-string">"http://www.w3.org/1999/xlink"</span> x=<span class="hljs-string">"0px"</span> y=<span class="hljs-string">"0px"</span> width=<span class="hljs-string">"24px"</span> height=<span class="hljs-string">"24px"</span> viewBox=<span class="hljs-string">"0 0 24 24"</span>&gt;&lt;g transform=<span class="hljs-string">"translate(0, 0)"</span>&gt; &lt;rect x=<span class="hljs-string">"1"</span> y=<span class="hljs-string">"1"</span> fill=<span class="hljs-string">"none"</span> stroke=<span class="hljs-string">"#4a5261"</span> stroke-width=<span class="hljs-string">"2"</span> stroke-linecap=<span class="hljs-string">"square"</span> stroke-miterlimit=<span class="hljs-string">"10"</span> width=<span class="hljs-string">"22"</span> height=<span class="hljs-string">"22"</span> stroke-linejoin=<span class="hljs-string">"miter"</span>&gt;&lt;/rect&gt; &lt;rect data-color=<span class="hljs-string">"color-2"</span> x=<span class="hljs-string">"5"</span> y=<span class="hljs-string">"5"</span> fill=<span class="hljs-string">"none"</span> stroke=<span class="hljs-string">"#4a5261"</span> stroke-width=<span class="hljs-string">"2"</span> stroke-linecap=<span class="hljs-string">"square"</span> stroke-miterlimit=<span class="hljs-string">"10"</span> width=<span class="hljs-string">"5"</span> height=<span class="hljs-string">"5"</span> stroke-linejoin=<span class="hljs-string">"miter"</span>&gt;&lt;/rect&gt; &lt;rect data-color=<span class="hljs-string">"color-2"</span> x=<span class="hljs-string">"14"</span> y=<span class="hljs-string">"5"</span> fill=<span class="hljs-string">"none"</span> stroke=<span class="hljs-string">"#4a5261"</span> stroke-width=<span class="hljs-string">"2"</span> stroke-linecap=<span class="hljs-string">"square"</span> stroke-miterlimit=<span class="hljs-string">"10"</span> width=<span class="hljs-string">"5"</span> height=<span class="hljs-string">"5"</span> stroke-linejoin=<span class="hljs-string">"miter"</span>&gt;&lt;/rect&gt; &lt;rect data-color=<span class="hljs-string">"color-2"</span> x=<span class="hljs-string">"5"</span> y=<span class="hljs-string">"14"</span> fill=<span class="hljs-string">"none"</span> stroke=<span class="hljs-string">"#4a5261"</span> stroke-width=<span class="hljs-string">"2"</span> stroke-linecap=<span class="hljs-string">"square"</span> stroke-miterlimit=<span class="hljs-string">"10"</span> width=<span class="hljs-string">"5"</span> height=<span class="hljs-string">"5"</span> stroke-linejoin=<span class="hljs-string">"miter"</span>&gt;&lt;/rect&gt; &lt;rect data-color=<span class="hljs-string">"color-2"</span> x=<span class="hljs-string">"14"</span> y=<span class="hljs-string">"14"</span> fill=<span class="hljs-string">"none"</span> stroke=<span class="hljs-string">"#4a5261"</span> stroke-width=<span class="hljs-string">"2"</span> stroke-linecap=<span class="hljs-string">"square"</span> stroke-miterlimit=<span class="hljs-string">"10"</span> width=<span class="hljs-string">"5"</span> height=<span class="hljs-string">"5"</span> stroke-linejoin=<span class="hljs-string">"miter"</span>&gt;&lt;/rect&gt; &lt;/g&gt;&lt;/svg&gt;
+                    ArtDoc&lt;/a&gt;
+                    &lt;/li&gt;
+                &lt;/ul&gt;
+                    <span class="hljs-string">""</span><span class="hljs-string">".format(home_uri=home_uri, jobs_uri=jobs_uri, feature_uri=feature_uri,
+                               documents_uri=documents_uri)
+        header = HEADER_HTML.format(style_css=STYLE_CSS, reset_css=RESET_CSS, nav=nav)
+
+        index = INDEX_HTML.format(projects=dps, nop=pending, nor=running, nof=finished, average=average,
+                                  shortest=shortest, longest=longest, lpn=lpn, lsn=lsn, most_spider=most_record[0],
+                                  most_num=most_record[1], invoked_spider="</span>,<span class="hljs-string">".join(invoked_spider),
+                                  un_invoked_spider="</span>,<span class="hljs-string">".join(un_invoked_spider), table=table, ranks=ranks,
+                                  feature_uri=feature_uri)
+        footers = FOOTERS_HTML
+        self.content = str_to_bytes(header + index + footers)  # return value need bytes
+        return self.content
+</span></code></pre><h2 class="heading">小结</h2>
+<p>需要注意的是，由于权限装饰器的存在，所以 URL 跳转需要额外处理。</p>
+<p>前面几个小节完成了 ScrapydArt 的首页功能编写与 HTML 页面拼接，下面将对 Jobs 页面进行重构。</p>

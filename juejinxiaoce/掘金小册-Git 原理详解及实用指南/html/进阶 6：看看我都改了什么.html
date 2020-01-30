@@ -1,0 +1,63 @@
+<h1 class="heading">进阶 6：看看我都改了什么</h1>
+<p>之前的章节里，说到过 <code>git log</code> 可以查看历史记录：</p>
+<pre><code class="hljs shell" lang="shell">git log
+</code></pre><p></p><figure><img src="https://user-gold-cdn.xitu.io/2017/11/22/15fe1ee0e2cc90e9?w=533&amp;h=449&amp;f=jpeg&amp;s=134977"><figcaption></figcaption></figure><p></p>
+<p>事实上，如果你希望看到更多细节，比如你想看看每条 <code>commit</code> 具体都有那些改动，也是可以的。</p>
+<h2 class="heading">log -p 查看详细历史</h2>
+<p><code>-p</code> 是 <code>--patch</code> 的缩写，通过 <code>-p</code> 参数，你可以看到具体每个 <code>commit</code> 的改动细节：</p>
+<pre><code class="hljs shell" lang="shell">git log -p
+</code></pre><p></p><figure><img src="https://user-gold-cdn.xitu.io/2017/11/22/15fe1ee0dfd781e7?w=581&amp;h=602&amp;f=jpeg&amp;s=163883"><figcaption></figcaption></figure><p></p>
+<p><code>log -p</code> 可以看到每一个 <code>commit</code> 的每一行改动，所以很适合用于代码 review。</p>
+<h2 class="heading">log --stat 查看简要统计</h2>
+<p>如果你只想大致看一下改动内容，但并不想深入每一行的细节（例如你想回顾一下自己是在哪个 <code>commit</code> 中修改了 <code>games.txt</code> 文件），那么可以把选项换成 <code>--stat</code>。</p>
+<pre><code class="hljs shell" lang="shell">git log --stat
+</code></pre><p></p><figure><img src="https://user-gold-cdn.xitu.io/2017/11/22/15fe1ee0e1ad48c7?w=539&amp;h=512&amp;f=jpeg&amp;s=139383"><figcaption></figcaption></figure><p></p>
+<h2 class="heading">show 查看具体的 commit</h2>
+<p>如果你想看某个具体的 <code>commit</code> 的改动内容，可以用 <code>show</code>：</p>
+<h3 class="heading">看当前 commit</h3>
+<p>直接输入：</p>
+<pre><code class="hljs shell" lang="shell">git show
+</code></pre><p></p><figure><img src="https://user-gold-cdn.xitu.io/2017/11/22/15fe1ee0e2b7738e?w=540&amp;h=330&amp;f=jpeg&amp;s=78967"><figcaption></figcaption></figure><p></p>
+<h3 class="heading">看任意一个 commit</h3>
+<p>在 <code>show</code> 后面加上这个 <code>commit</code> 的引用（<code>branch</code> 或 <code>HEAD</code> 标记）或它的 <code>SHA-1</code> 码：</p>
+<pre><code class="hljs shell" lang="shell">git show 5e68b0d8
+</code></pre><p></p><figure><img src="https://user-gold-cdn.xitu.io/2017/11/22/15fe1ee0e39c0b6b?w=434&amp;h=388&amp;f=jpeg&amp;s=100518"><figcaption></figcaption></figure><p></p>
+<h3 class="heading">看指定 commit 中的指定文件</h3>
+<p>在 <code>commit</code> 的引用或 <code>SHA-1</code> 后输入文件名：</p>
+<pre><code class="hljs shell" lang="shell">git show 5e68b0d8 shopping\ list.txt
+</code></pre><h2 class="heading">看未提交的内容</h2>
+<p>如果你想看未提交的内容，可以用 <code>diff</code>。</p>
+<h3 class="heading">比对暂存区和上一条提交</h3>
+<p>使用 <code>git diff --staged</code> 可以显示暂存区和上一条提交之间的不同。换句话说，这条指令可以让你看到「如果你立即输入 <code>git commit</code>，你将会提交什么」：</p>
+<pre><code class="hljs shell" lang="shell">git diff --staged
+</code></pre><p><code>--staged</code> 有一个等价的选项叫做 <code>--cached</code>。这里所谓的「等价」，是真真正正的等价，它们的意思完全相同。</p>
+<h3 class="heading">比对工作目录和暂存区</h3>
+<p>使用 <code>git diff</code> （不加选项参数）可以显示工作目录和暂存区之间的不同。换句话说，这条指令可以让你看到「如果你现在把所有文件都 <code>add</code>，你会向暂存区中增加哪些内容」：</p>
+<pre><code class="hljs shell" lang="shell">git diff
+</code></pre><h3 class="heading">比对工作目录和上一条提交</h3>
+<p>使用 <code>git diff HEAD</code> 可以显示工作目录和上一条提交之间的不同，它是上面这二者的内容相加。换句话说，这条指令可以让你看到「如果你现在把所有文件都 <code>add</code> 然后 <code>git commit</code>，你将会提交什么」（不过需要注意，没有被 Git 记录在案的文件（即从来没有被 add 过 的文件，untracked files 并不会显示出来。为什么？因为对 Git 来说它并不存在啊）。</p>
+<pre><code class="hljs shell" lang="shell">git diff HEAD
+</code></pre><p>实质上，如果你把 <code>HEAD</code> 换成别的 <code>commit</code>，也可以显示当前工作目录和这条 <code>commit</code> 的区别。不过这种「如果」是可以列举很多很多的，Git 非常灵活，假如我把每个命令的所有可能性都列举出来，这本小册会变得杂乱无比没有重点，反而会让你困惑。所以我只讲最常用和最通用的内容，如果你对这些「如果」感兴趣，最好是自己去探索。</p>
+<h2 class="heading">小结</h2>
+<p>这一节介绍了一些查看改动内容的方法，大致有这么几类：</p>
+<ol>
+<li>查看历史中的多个 <code>commit</code>：<code>log</code>
+<ol>
+<li>查看详细改动： <code>git log -p</code></li>
+<li>查看大致改动：<code>git log --stat</code></li>
+</ol>
+</li>
+<li>查看具体某个 <code>commit</code>：<code>show</code>
+<ol>
+<li>要看最新 <code>commit</code> ，直接输入 <code>git show</code> ；要看指定 <code>commit</code> ，输入 <code>git show commit的引用或SHA-1</code></li>
+<li>如果还要指定文件，在 <code>git show</code> 的最后加上文件名</li>
+</ol>
+</li>
+<li>查看未提交的内容：<code>diff</code>
+<ol>
+<li>查看暂存区和上一条 <code>commit</code> 的区别：<code>git diff --staged</code>（或 <code>--cached</code>）</li>
+<li>查看工作目录和暂存区的区别：<code>git diff</code> 不加选项参数</li>
+<li>查看工作目录和上一条 <code>commit</code> 的区别：<code>git diff HEAD</code></li>
+</ol>
+</li>
+</ol>

@@ -1,0 +1,107 @@
+<h1 class="heading">自定义 API 开发 - 爬虫调用情况统计</h1>
+<p>前面动手编写了<code>CustomResource</code>，并且将其应用到原来的 HTML 视图类上。这一节我们来学习如何编写 API。</p>
+<p>在之前对 API 的阅读中，我们知道 API 代码写在<code>scrapyd/webservice.py</code>中，为了保持风格一致，我们也将代码写在此文件中。</p>
+<h2 class="heading">编写自定义 API</h2>
+<p>在之前的 API 源码与视图类源码的阅读中，我们知道渲染由 render 方法完成，并且可以通过<code>render_GET</code>以及<code>render_POST</code>来指定请求方式。</p>
+<h3 class="heading">编写 GET 类型的爬虫调用信息统计 API</h3>
+<ul>
+<li>功能：爬虫调用情况</li>
+<li>描述：如被调用过的爬虫、未被调用过的爬虫、被调用次数最多的爬虫名称及次数</li>
+</ul>
+<p>在<code>webservice.py</code>中新建类<code>ScheduleList</code>，它继承之前我们自己编写的视图类<code>CustomResource</code>：</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">ScheduleList</span><span class="hljs-params">(CustomResource)</span>:</span>
+</code></pre><p>通过对其他 API 的调试，可以知道所有运行完毕的爬虫运行信息对象以列表的形式记录在<code>self.root.launcher.finished</code>中：</p>
+<pre><code class="hljs Python" lang="Python">[
+&lt;scrapyd.launcher.ScrapyProcessProtocol object at <span class="hljs-number">0x10cf97d68</span>&gt;,
+&lt;scrapyd.launcher.ScrapyProcessProtocol object at <span class="hljs-number">0x10cf546d8</span>&gt;,
+&lt;scrapyd.launcher.ScrapyProcessProtocol object at <span class="hljs-number">0x10cf3d4e0</span>&gt;
+]
+</code></pre><p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/10/11/16662fee3bc4f760?w=1536&amp;h=1002&amp;f=gif&amp;s=4078380"><figcaption></figcaption></figure><p></p>
+<p></p><figure><img alt="finished object" src="https://user-gold-cdn.xitu.io/2018/10/5/16643ab60543f5ff?w=686&amp;h=264&amp;f=png&amp;s=69929"><figcaption></figcaption></figure>
+每个对象中包含对应爬虫相关运行信息，如项目名称 project、爬虫名称 spider、启动时间 start_time、结束时间 end_time、jobid、日志路径 logfile 等。<p></p>
+<p>根据需求，要取的数据有：</p>
+<pre><code>* 所有爬虫名称
+* 已运行完毕的爬虫名称
+* 爬虫调用记录
+</code></pre>
+<p>通过 A 与 B 的差值计算得出未被调用过的爬虫、通过调用记录计算爬虫调用次数并取最大次数。</p>
+<p>代码逻辑：</p>
+<pre><code class="hljs HTML" lang="HTML">* 取得运行完毕的爬虫运行记录列表
+* 获取爬虫列表
+* 计算差值，得出已被调用与未被调用的爬虫名列表
+* 计算爬虫调用记录中被调用次数最多的爬虫名及其次数
+* 将结果以原 JSON 风格渲染输出
+</code></pre><p>相应代码：</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">ScheduleList</span><span class="hljs-params">(CustomResource)</span>:</span>
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">render_GET</span><span class="hljs-params">(self, request)</span>:</span>
+        <span class="hljs-string">"""爬虫调用情况
+        如被调用过的爬虫、未被调用过的爬虫、被调用次数最多的爬虫名称及次数
+        """</span>
+        finishes = self.root.launcher.finished
+        projects, spiders = get_ps(self)  <span class="hljs-comment"># 项目/爬虫列表</span>
+        invoked_spider, un_invoked_spider, most_record = get_invokes(finishes, spiders)  <span class="hljs-comment"># 被调用过/未被调用的爬虫</span>
+        <span class="hljs-keyword">return</span> {<span class="hljs-string">"node_name"</span>: self.root.nodename, <span class="hljs-string">"status"</span>: <span class="hljs-string">"ok"</span>, <span class="hljs-string">"invoked_spider"</span>: list(invoked_spider),
+                <span class="hljs-string">"un_invoked_spider"</span>: list(un_invoked_spider), <span class="hljs-string">"most_record"</span>: most_record}
+</code></pre><p>其中通过<code>get_ps</code>方法获取爬虫列表：</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">get_ps</span><span class="hljs-params">(self)</span>:</span>
+    <span class="hljs-string">"""获取项目列表与爬虫列表
+    :param self:
+    :return: projects-项目列表， spiders-爬虫列表
+    """</span>
+    projects = list(self.root.scheduler.list_projects())
+    spiders = get_spiders(projects)
+    <span class="hljs-keyword">return</span> projects, spiders
+</code></pre><p>通过<code>get_invokes</code>方法计算所需结果：</p>
+<pre><code class="hljs python" lang="python"><span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">get_invokes</span><span class="hljs-params">(finishes, spiders)</span>:</span>
+        <span class="hljs-string">"""获取已被调用与未被调用的爬虫名称及被调用次数最多的爬虫
+        :param: finishes 已运行完毕的爬虫运行信息记录列表
+        :param: spiders 所有爬虫名列表
+        :return: invoked-被调用过的爬虫集合, un_invoked-未被调用的爬虫集合, most_record-被调用次数最多的爬虫名与次数
+        """</span>
+        invoked = set(i.spider <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> finishes)
+        un_invoked = set(spiders).difference(invoked)
+        invoked_record = Counter(i.spider <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> finishes)
+        most_record = invoked_record.most_common(<span class="hljs-number">1</span>)[<span class="hljs-number">0</span>] <span class="hljs-keyword">if</span> invoked_record <span class="hljs-keyword">else</span> (<span class="hljs-string">"nothing"</span>, <span class="hljs-number">0</span>)
+        <span class="hljs-keyword">return</span> invoked, un_invoked, most_record
+</code></pre><p>还需要通过:</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">get_spiders</span><span class="hljs-params">(values)</span>:</span>
+    <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> values:
+        <span class="hljs-keyword">return</span> []
+    <span class="hljs-comment"># [['tips', 'nof'], ['nop']] -&gt; ['tips', 'nof', 'nop']</span>
+    value = list(reduce(<span class="hljs-keyword">lambda</span> x, y: x+y,  map(get_spider_list, values)))  <span class="hljs-comment"># first 2.8s</span>
+    <span class="hljs-keyword">return</span> value
+</code></pre><h2 class="heading">自定义 API 的使用</h2>
+<h3 class="heading">配置路由</h3>
+<p>代码编写好之后，还需要在为其配置路由映射规则。打开 Scrapyd 的配置文件<code>default_scrapyd.conf</code>，在<code>services</code>级下添加路由，如：</p>
+<pre><code class="hljs conf" lang="conf">[services]
+schedulelist.json = scrapyd.webservice.ScheduleList
+</code></pre><p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/10/11/166630dc666d4c87?w=1074&amp;h=424&amp;f=gif&amp;s=1562870"><figcaption></figcaption></figure>
+保存之后重新启动 Scrapyd 服务才能生效。<p></p>
+<h3 class="heading">API 的使用</h3>
+<p>由于编写代码时选择 <code>render_GET</code> 方法，所以在使用时与原 API 使用方式一致，如果是使用 cURL 模拟请求，则请求语句为:</p>
+<pre><code class="hljs cURL" lang="cURL">curl: http://localhost:6800/schedulelist.json
+</code></pre><p>如果是使用 Postman 作为模拟请求工具，则：</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/10/11/1666310ea7f2c5d0?w=1078&amp;h=876&amp;f=gif&amp;s=786048"><figcaption></figcaption></figure>
+如果使用代码（requests）发起请求，代码为：<p></p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-keyword">import</span> requests
+
+resp = requests.get(<span class="hljs-string">"http://localhost:6800/schedulelist.json"</span>)
+print(resp.text)
+</code></pre><p>发起请求后，得到的返回结果为：</p>
+<pre><code class="hljs json" lang="json">{
+<span class="hljs-attr">"node_name"</span>: <span class="hljs-string">"node-name"</span>,
+<span class="hljs-attr">"status"</span>: <span class="hljs-string">"ok"</span>,
+<span class="hljs-attr">"invoked_spider"</span>: [<span class="hljs-string">"quinns"</span>,<span class="hljs-string">"fabias"</span>],
+<span class="hljs-attr">"un_invoked_spider"</span>: [<span class="hljs-string">"artspider"</span>],
+<span class="hljs-attr">"most_record"</span>: [<span class="hljs-string">"fabias"</span>,<span class="hljs-number">3</span>]
+    
+}
+</code></pre><p>返回结果中键的含义解释：</p>
+<pre><code>* node_name-请求发起者
+* status-请求状态，ok 为成功
+* invoked_spider-被调用过的爬虫列表
+* un_invoked_spider-未被调用过的爬虫列表
+* most_record-被调用次数最多的爬虫名及次数
+</code></pre>
+<h2 class="heading">小结</h2>
+<p>基于之前几个小节学习的知识，结合需求分析，render 选型和逻辑分析，逐步完成了自定义 API 的编写。</p>

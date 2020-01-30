@@ -1,0 +1,149 @@
+<h1 class="heading">搭建基于 Nginx 的代理服务器</h1>
+<p><a target="_blank" href="https://nginx.org/en/">Nginx</a> 是俄罗斯人编写的十分轻量级的 HTTP 服务器，是一个高性能的 HTTP 和反向代理服务器。相较于 <a target="_blank" href="https://httpd.apache.org/">Apache</a>、<a target="_blank" href="https://www.lighttpd.net/">lighttpd</a> ，它具有占有内存少、稳定性高等优势。它最常见的用途是提供反向代理服务。</p>
+<p>在本小节中，我们将利用 Nginx 的反向代理及负载均衡能力。所谓的负载均衡，是当单台服务器的性能无法满足业务需求时，需横向添加多台服务器；负载均衡就是让访问流量均匀的落在这个服务器集群的每个服务器上。具体逻辑图如下：</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/17/162cf4279defaf8f?w=749&amp;h=545&amp;f=png&amp;s=27262"><figcaption></figcaption></figure><p></p>
+<p>App 客户端将请求发送至 Nginx，Nginx 收到请求后，将其转发给后端的服务器集群。在本小册中，我们的 Demo 只有一台虚拟机，现将 Nginx 和后端服务器放在一起，Nginx 架设在 Tornado 之前，其基本框架图如下。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/26/162fed7f862487ae?w=648&amp;h=613&amp;f=png&amp;s=27863"><figcaption></figcaption></figure><p></p>
+<h2 class="heading">安装 Nginx</h2>
+<p>输入 <code>yum install nginx</code> 安装 Nginx，安装完成后，输入 <code>nginx -v</code> 查看 Nginx 是否安装成功。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/17/162cf42e5f0860bd?w=727&amp;h=354&amp;f=png&amp;s=33791"><figcaption></figcaption></figure><p></p>
+<p>这里显示安装已成功，版本号为 <code>1.12.2</code>。</p>
+<h2 class="heading">配置随系统自启动</h2>
+<p>配置 Nginx 随系统自启动，即 Linux 系统启动时，Nginx 能自启动，而不是人为干预启动。</p>
+<pre><code class="hljs shell" lang="shell">chkconfig --levels 235 nginx on
+service nginx start
+</code></pre><p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/17/162cf4315115e6d2?w=1555&amp;h=72&amp;f=png&amp;s=17810"><figcaption></figcaption></figure><p></p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/17/162cf432baa6a329?w=658&amp;h=49&amp;f=png&amp;s=7930"><figcaption></figcaption></figure><p></p>
+<h2 class="heading">配置 Nginx</h2>
+<p>进入 <code>/etc/nginx/</code>, 编辑 <code>nginx.conf</code> 文件。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/17/162cf437db1850dc?w=964&amp;h=157&amp;f=png&amp;s=17939"><figcaption></figcaption></figure>
+在 <code>nginx.conf</code> 中，增加后端服务器 IP 和端口，由于 Nginx 和服务器在同一台机器上，这里填入：<p></p>
+<pre><code class="hljs bash" lang="bash">upstream frontends {
+    server 127.0.0.1:8000;
+}
+</code></pre><p>当 Nginx 和后端服务器不在同一台机器上，并有多台后端服务器设备时，则配置具体服务器的 <code>IP:端口</code> 即可，Nginx 会负载均衡的将流量均匀分配到这些服务器上。此时配置如下：</p>
+<pre><code class="hljs bash" lang="bash">upstream frontends {
+    server x.x.x.x:nnn;
+    server y.y.y.y:mmm;
+    server z.z.z.z:lll;
+}
+</code></pre><p>由于 Nginx 对大小超过 1MB 的文件上传有限制，这里将默认限制 1MB 修改为 50MB，即添加配置 <code>client_max_body_size 50m;</code>，具体位置如下图所示。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/17/162cf43a5a748c1f?w=798&amp;h=503&amp;f=png&amp;s=38078"><figcaption></figcaption></figure><p></p>
+<p>在 <code>nignx.conf</code> 文件中的 <code>location</code> 下，添加如下代理配置，即所有收到的请求，都转发到 <code>frontends</code> （如上所述的 <code>upstream frontends</code>）处理，具体如下：</p>
+<pre><code class="hljs bash" lang="bash">    proxy_pass_header Server;
+    proxy_set_header Host <span class="hljs-variable">$http_host</span>;
+    proxy_redirect <span class="hljs-literal">false</span>;
+    proxy_set_header X-Real-IP <span class="hljs-variable">$remote_addr</span>;
+    proxy_set_header X-Scheme <span class="hljs-variable">$scheme</span>;
+    proxy_pass http://frontends;
+</code></pre><p>具体位置如下：</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/17/162cf4a15297a1b6?w=773&amp;h=421&amp;f=png&amp;s=34375"><figcaption></figcaption></figure><p></p>
+<p>至此，我们已完成了 Nginx 的配置。</p>
+<h2 class="heading">其他配置项介绍</h2>
+<pre><code class="hljs bash" lang="bash"><span class="hljs-comment"># For more information on configuration, see:</span>
+<span class="hljs-comment">#   * Official English Documentation: http://nginx.org/en/docs/</span>
+<span class="hljs-comment">#   * Official Russian Documentation: http://nginx.org/ru/docs/</span>
+
+user nginx;
+<span class="hljs-comment"># worker_processes 一般设置与 cpu 个数相等，也可配置为auto</span>
+worker_processes auto;
+<span class="hljs-comment"># 全局错误日志及 pid 目录</span>
+error_log /var/<span class="hljs-built_in">log</span>/nginx/error.log;
+pid /run/nginx.pid;
+
+<span class="hljs-comment"># Load dynamic modules. See /usr/share/nginx/README.dynamic.</span>
+include /usr/share/nginx/modules/*.conf;
+
+events {
+    <span class="hljs-comment"># 单个后台 worker proces s进程的最大并发链接数 </span>
+    worker_connections 1024;
+}
+
+http {
+    <span class="hljs-comment"># 设置 log 格式</span>
+    log_format  main  <span class="hljs-string">'$remote_addr - $remote_user [$time_local] "$request" '</span>
+                      <span class="hljs-string">'$status $body_bytes_sent "$http_referer" '</span>
+                      <span class="hljs-string">'"$http_user_agent" "$http_x_forwarded_for"'</span>;
+
+    <span class="hljs-comment"># 配置上游服务器，此处为 Tornado 服务器 IP+Port</span>
+    upstream frontends {
+        server 127.0.0.1:8000;
+        <span class="hljs-comment">#server 10.10.10.10:8001;</span>
+    }
+
+    <span class="hljs-comment"># 访问日志</span>
+    access_log  /var/<span class="hljs-built_in">log</span>/nginx/access.log  main;
+
+    <span class="hljs-comment"># sendfile 指令指定 nginx 是否调用 sendfile 函数（zero copy 方式）来输出文件，普通应用，设置为 on 即可；</span>
+    <span class="hljs-comment"># keepalive_timeout 配置超时时间；</span>
+    <span class="hljs-comment"># types_hash_max_size 影响散列表的冲突率。types_hash_max_size 越大，就会消耗更多的内存，但散列key的冲突率会降低，检索速度就更快。types_hash_max_size 越小，消耗的内存就越小，但散列key的冲突率可能上升。</span>
+    <span class="hljs-comment"># client_max_body_size 客户端上传的body的最大值。</span>
+    sendfile            on;
+    tcp_nopush          on;
+    tcp_nodelay         on;
+    keepalive_timeout   65;
+    types_hash_max_size 2048;
+    client_max_body_size 50m; 
+
+    include             /etc/nginx/mime.types;
+    default_type        application/octet-stream;
+
+    <span class="hljs-comment"># Load modular configuration files from the /etc/nginx/conf.d directory.</span>
+    <span class="hljs-comment"># See http://nginx.org/en/docs/ngx_core_module.html#include</span>
+    <span class="hljs-comment"># for more information.</span>
+    include /etc/nginx/conf.d/*.conf;
+
+    server {
+        <span class="hljs-comment"># 监听端口为 80</span>
+        listen       80 default_server;
+        listen       [::]:80 default_server;
+        server_name  _;
+        <span class="hljs-comment"># 默认网站根目录位置</span>
+        root         /usr/share/nginx/html;
+
+        <span class="hljs-comment"># Load configuration files for the default server block.</span>
+        include /etc/nginx/default.d/*.conf;
+
+        <span class="hljs-comment"># 设置默认请求代理，此处使用frontends，即请求代理至 Tronado 服务器</span>
+        location / {
+            proxy_pass_header Server;
+            proxy_set_header Host <span class="hljs-variable">$http_host</span>;
+            proxy_redirect <span class="hljs-literal">false</span>;
+            proxy_set_header X-Real-IP <span class="hljs-variable">$remote_addr</span>;
+            proxy_set_header X-Scheme <span class="hljs-variable">$scheme</span>;
+            proxy_pass http://frontends;
+        }
+        
+        <span class="hljs-comment"># 定义 404 错误页</span>
+        error_page 404 /404.html;
+            location = /40x.html {
+        }
+
+        <span class="hljs-comment"># 定义 50x 错误页</span>
+        error_page 500 502 503 504 /50x.html;
+            location = /50x.html {
+        }
+    }
+}
+
+</code></pre><h2 class="heading">重启 Nginx 服务</h2>
+<pre><code class="hljs bash" lang="bash">service nginx stop
+service nginx start
+</code></pre><p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/17/162cf43c1832618c?w=672&amp;h=116&amp;f=png&amp;s=17417"><figcaption></figcaption></figure><p></p>
+<p>接下来测试从 App 客户端向 Nginx 服务器发送 HTTP 请求，查看是否能正常转发至后端服务器上。在这里，我们看到 <code>nginx.conf</code> 有如下配置，即表示其对外服务的端口号为 80。实际项目中，可以根据具体情况进行修改。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/17/162cf44047e8a3ca?w=750&amp;h=251&amp;f=png&amp;s=17718"><figcaption></figcaption></figure><p></p>
+<h2 class="heading">请求测试</h2>
+<p>我们还是以上一小节 App 客户端请求加载 H5 页面为例。由于 Nginx 对外提供服务的端口号是 80，而 80 端口在 HTTP 请求中可以不用输入，此时客户端请求的 URL 为：
+http://150.109.33.132/users/login?phone=18866668888&amp;password=demo123456</p>
+<h3 class="heading">服务端输出</h3>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/17/162cf44249203218?w=1251&amp;h=290&amp;f=png&amp;s=71079"><figcaption></figcaption></figure><p></p>
+<h3 class="heading">客户端加载结果</h3>
+<div style="text-align: center; margin-top: 30px">
+<img style="width: 480px" src="https://user-gold-cdn.xitu.io/2018/4/17/162cf44586567600?w=1080&amp;h=1920&amp;f=jpeg&amp;s=236689">
+</div>
+<p>至此，我们已完成了 Nginx 的学习及服务器端的配置。</p>
+<h2 class="heading">Nginx 配置下载</h2>
+<p>链接：<a target="_blank" href="https://pan.baidu.com/s/1-3p1N08YY5rfALqocX8YZw">百度网盘 - nginx.conf</a><br>
+密码：xtmr</p>
+<h2 class="heading">小结</h2>
+<p>本节我们完成了 Nginx 服务器的搭建，并通过一个简单的例子，讲解了 Nginx 作为反向代理服务器和负载均衡器的应用。</p>

@@ -1,0 +1,18 @@
+<h1 class="heading">高级 10：branch 删过了才想起来有用？</h1>
+<p><code>branch</code>  用完就删是好习惯，但有的时候，不小心手残删了一个还有用的 <code>branch</code> ，或者把一个 <code>branch</code> 删掉了才想起来它还有用，怎么办？</p>
+<h2 class="heading">reflog ：引用的 log</h2>
+<p><code>reflog</code> 是 "reference log" 的缩写，使用它可以查看 Git 仓库中的引用的移动记录。如果不指定引用，它会显示 <code>HEAD</code> 的移动记录。假如你误删了 <code>branch1</code> 这个 <code>branch</code>，那么你可以查看一下 <code>HEAD</code> 的移动历史：</p>
+<pre><code class="hljs shell" lang="shell">git reflog
+</code></pre><p></p><figure><img src="https://user-gold-cdn.xitu.io/2017/11/22/15fe3de05468c613?w=602&amp;h=78&amp;f=jpeg&amp;s=51327"><figcaption></figcaption></figure><p></p>
+<p>从图中可以看出，<code>HEAD</code> 的最后一次移动行为是「从 <code>branch1</code> 移动到 <code>master</code>」。而在这之后，<code>branch1</code> 就被删除了。所以它之前的那个 <code>commit</code> 就是 <code>branch1</code> 被删除之前的位置了，也就是第二行的 <code>c08de9a</code>。</p>
+<p>所以现在就可以切换回 <code>c08de9a</code>，然后重新创建 <code>branch1</code> ：</p>
+<pre><code class="hljs shell" lang="shell">git checkout c08de9a
+git checkout -b branch1
+</code></pre><p>这样，你刚删除的 <code>branch1</code> 就找回来了。</p>
+<blockquote>
+<p>注意：不再被引用直接或间接指向的 <code>commit</code>s 会在一定时间后被 Git 回收，所以使用 <code>reflog</code> 来找回删除的 <code>branch</code> 的操作一定要及时，不然有可能会由于 <code>commit</code> 被回收而再也找不回来。</p>
+</blockquote>
+<h2 class="heading">查看其他引用的 reflog</h2>
+<p><code>reflog</code> 默认查看 <code>HEAD</code> 的移动历史，除此之外，也可以手动加上名称来查看其他引用的移动历史，例如某个 <code>branch</code>：</p>
+<pre><code class="hljs shell" lang="shell">git reflog master
+</code></pre><p></p><figure><img src="https://user-gold-cdn.xitu.io/2017/11/22/15fe3de0548714c7?w=629&amp;h=98&amp;f=jpeg&amp;s=63093"><figcaption></figcaption></figure><p></p>

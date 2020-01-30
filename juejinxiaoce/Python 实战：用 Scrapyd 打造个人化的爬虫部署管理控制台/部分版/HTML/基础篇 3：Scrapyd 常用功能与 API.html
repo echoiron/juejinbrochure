@@ -1,0 +1,67 @@
+<h1 class="heading">Scrapyd 常用功能与 API</h1>
+<p>上一个小节中，我们学会了如何将项目打包并部署，这一节我们来熟悉 Scrapyd 的常用功能以及学习如何通过 Scrapyd 提供的 API 对爬虫发起指令。</p>
+<h2 class="heading">Scrapyd-web</h2>
+<p><a target="_blank" href="https://scrapyd.readthedocs.io/en/latest/overview.html#web-interface">Scrapyd 官方文档</a>中有介绍，Scrapyd 为使用者提供了 Web 与 JSON 两种访问方式，其中<code>web</code>用于监视运行进程和爬虫日志、<code>json</code>用于向爬虫发送操作指令。</p>
+<p>Web 中有首页、Jobs、Logs 三个主要页面：</p>
+<ul>
+<li>首页：服务入口，展示已部署的项目名称</li>
+<li>Jobs：爬虫运行状态及运行记录的主要观察页面</li>
+<li>Logs：爬虫运行日志文本文件资源目录</li>
+</ul>
+<p></p><figure><img alt="Jobs" src="https://user-gold-cdn.xitu.io/2018/10/4/1663e7be42536a70?w=818&amp;h=275&amp;f=png&amp;s=28786"><figcaption></figcaption></figure><p></p>
+<p>由上图可以看到，Jobs 页面中包含了爬虫与运行记录、项目名称、爬虫名称、jobID、进程 ID、启动时间、运行时长、结束时间以及日志链接。根据以上信息，我们可以对爬虫的状态做个大致的了解。</p>
+<h2 class="heading">Scrapyd-json</h2>
+<p>Scrapyd 为使用者提供了很多的 API，在文档中称为<a target="_blank" href="https://scrapyd.readthedocs.io/en/latest/api.html">资源</a>。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/10/17/1667f9017da8b68f"><figcaption></figcaption></figure><p></p>
+<h3 class="heading">API 的作用介绍</h3>
+<p>API 的具体内容、用法和返回信息在官方文档中都有详尽的介绍，这里我做个归纳：</p>
+<ul>
+<li>daemonstatus.json - 用以检查 Scrapyd 服务的爬虫状态及对应数量。</li>
+<li>addversion.json - 用以为项目添加版本，如果项目不存在则创建项目。</li>
+<li>schedule.json - 用以启动指定的爬虫。</li>
+<li>cancel.json - 用以取消指定的爬虫。</li>
+<li>listprojects.json - 用以查看当前已部署的项目名称。</li>
+<li>listversions.json - 用以查看指定项目的版本号。</li>
+<li>listspiders.json - 用以查看指定项目的爬虫名称。</li>
+<li>listjobs.json - 用以查看指定项目下爬虫的运行状态。</li>
+<li>delversion.json - 用以删除指定项目的指定版本，如版本不存在则将项目删除。</li>
+<li>delproject.json - 用以删除指定项目及其已上传的所有版本。</li>
+</ul>
+<h3 class="heading">API 的使用示例</h3>
+<p>官方示例中以 cURL 作为请求工具，向服务的 API 发起请求</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/10/17/1667f9337e0da9b3?w=1097&amp;h=823&amp;f=png&amp;s=109035"><figcaption></figcaption></figure>
+如启动指定爬虫：<p></p>
+<pre><code class="hljs cURL" lang="cURL">$ curl http://localhost:6800/schedule.json -d project=myproject -d spider=somespider
+</code></pre><p>当然，如果你想在启动的时候传递指定的参数，也可以这么写：</p>
+<pre><code class="hljs curl" lang="curl">$ curl http://localhost:6800/schedule.json -d project=myproject -d spider=somespider  -d arg1=val1
+</code></pre><p>官方返回示例为：</p>
+<pre><code class="hljs json" lang="json">{<span class="hljs-attr">"status"</span>: <span class="hljs-string">"ok"</span>, <span class="hljs-attr">"jobid"</span>: <span class="hljs-string">"6487ec79947edab326d6db28a2d86511e8247444"</span>}
+</code></pre><p>cURL 动图演示：</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/10/17/1667f9e001830626?w=1062&amp;h=720&amp;f=gif&amp;s=197829"><figcaption></figcaption></figure><p></p>
+<h2 class="heading">使用 Postman 工具启动爬虫</h2>
+<p>当然，除了官方推荐的 cURL，我们还可以使用 Postman 来作为我们的请求工具，同样是启动指定的爬虫，Postman 的设置如下所示：</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/10/11/166610fcded013fc?w=1326&amp;h=898&amp;f=gif&amp;s=184718"><figcaption></figcaption></figure><p></p>
+<p>设置好请求地址和对应的参数后，点击 Send 发送请求，我们就会得到 Scrapyd 中 Schedule 视图类提供的返回结果：</p>
+<pre><code class="hljs Python" lang="Python">{
+    <span class="hljs-string">"node_name"</span>: <span class="hljs-string">"node-name"</span>,
+    <span class="hljs-string">"status"</span>: <span class="hljs-string">"ok"</span>,
+    <span class="hljs-string">"jobid"</span>: <span class="hljs-string">"ede04d0ac7be11e8b70d00e070785d37"</span>
+}
+</code></pre><p>代表此次请求发送成功且能够启动对应的爬虫。</p>
+<h2 class="heading">使用 Python 代码启动爬虫</h2>
+<p>既然它是通过网络请求来发送指令，那我们就可以使用 requests 来模拟请求的发起，新建 <code>sendapi.py</code> 文件并敲写代码：</p>
+<pre><code class="hljs bash" lang="bash">import requests
+
+
+url = <span class="hljs-string">"http://localhost:6800/schedule.json"</span>
+params = {<span class="hljs-string">"project"</span>: <span class="hljs-string">"arts"</span>, <span class="hljs-string">"spider"</span>: <span class="hljs-string">"tips"</span>}
+resp = requests.post(url, data=params)
+<span class="hljs-built_in">print</span>(resp.text)
+</code></pre><p>通过命令<code>python sendapi.py</code>运行得到返回结果：</p>
+<pre><code class="hljs bash" lang="bash">{<span class="hljs-string">"node_name"</span>: <span class="hljs-string">"gannicus-PC"</span>, <span class="hljs-string">"status"</span>: <span class="hljs-string">"ok"</span>, <span class="hljs-string">"jobid"</span>: <span class="hljs-string">"51bdd2bad1ac11e89ed954ee75c0e204"</span>}
+</code></pre><p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/10/17/1667fa6946262fff?w=1200&amp;h=684&amp;f=gif&amp;s=518627"><figcaption></figcaption></figure><p></p>
+<h2 class="heading">Scrapyd 日志</h2>
+<p>爬虫的运行信息都会记录在日志文件当中，在 Jobs 页面，可以找到爬虫任务对应的日志，也可以通过 Logs 查看某个项目或某个爬虫的日志，日志内容如下图所示：</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/10/11/16661123eaa867ce?w=1106&amp;h=1017&amp;f=gif&amp;s=206900"><figcaption></figcaption></figure><p></p>
+<h2 class="heading">小结</h2>
+<p>本小节结合 Scrapyd 文档与示例代码，我们了解到 Scrapyd API 的用法，并且通过网络请求工具 Postman 发起请求，最后使用 Python 代码向 Scrapyd 服务发起请求，成功启动指定爬虫，完成了从文档到实践的跳跃。</p>

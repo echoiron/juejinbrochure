@@ -1,0 +1,41 @@
+<h1 class="heading">高级 5：想丢弃的也不是最新的提交？</h1>
+<p>假如有一个 <code>commit</code> ，你在刚把它写完的时候并没有觉得它不好，可是在之后又写了几个提交以后，你突然灵光一现：「哎呀，那个 <code>commit</code> 不该写，我要撤销！」</p>
+<p>不是最新的提交，就不能用 <code>reset --hard</code> 来撤销了。这种情况的撤销，就要用之前介绍过的一个指令：交互式 <code>rebase</code> ——<code>rebase -i</code>。</p>
+<h2 class="heading">用交互式 rebase 撤销提交</h2>
+<p>之前介绍过，交互式 <code>rebase</code> 可以用来修改某些旧的 <code>commit</code>s。其实除了修改提交，它还可以用于撤销提交。比如下面这种情况：</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2017/11/22/15fe243fc7996318?w=536&amp;h=354&amp;f=jpeg&amp;s=118972"><figcaption></figcaption></figure><p></p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2017/11/22/15fe243fc74f48c7?w=447&amp;h=273&amp;f=jpeg&amp;s=16849"><figcaption></figcaption></figure><p></p>
+<p>你想撤销倒数第二条 <code>commit</code>，那么可以使用 <code>rebase -i</code>：</p>
+<pre><code class="hljs shell" lang="shell">git rebase -i HEAD^^
+</code></pre><p></p><figure><img src="https://user-gold-cdn.xitu.io/2017/11/22/15fe243fc7ac1154?w=554&amp;h=261&amp;f=jpeg&amp;s=96953"><figcaption></figcaption></figure><p></p>
+<p>然后就会跳到 <code>commit</code> 序列的编辑界面，这个在之前的第 10 节里已经讲过了。和第 10 节一样，你需要修改这个序列来进行操作。不过不同的是，之前讲的修正 <code>commit</code> 的方法是把要修改的 <code>commit</code> 左边的 <code>pick</code> 改成 <code>edit</code>，而如果你要撤销某个 <code>commit</code> ，做法就更加简单粗暴一点：直接删掉这一行就好。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2017/11/22/15fe243fcf5f6607?w=542&amp;h=240&amp;f=jpeg&amp;s=77581"><figcaption></figcaption></figure><p></p>
+<p><code>pick</code> 的直接意思是「选取」，在这个界面的意思就是应用这个 <code>commit</code>。而如果把这一行删掉，那就相当于在 <code>rebase</code> 的过程中跳过了这个 <code>commit</code>，从而也就把这个 <code>commit</code> 撤销掉了。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2017/11/22/15fe243fce5804fd?w=548&amp;h=330&amp;f=gif&amp;s=326602"><figcaption></figcaption></figure><p></p>
+<p>现在再看 <code>log</code>，就会发现之前的倒数第二条 <code>commit</code> 已经不在了。</p>
+<pre><code class="hljs shell" lang="shell">git log
+</code></pre><p></p><figure><img src="https://user-gold-cdn.xitu.io/2017/11/22/15fe243fc7eb3b31?w=528&amp;h=220&amp;f=jpeg&amp;s=71201"><figcaption></figcaption></figure><p></p>
+<h2 class="heading">用 rebase --onto 撤销提交</h2>
+<p>除了用交互式 <code>rebase</code> ，你还可以用 <code>rebase --onto</code> 来更简便地撤销提交。</p>
+<p><code>rebase</code> 加上 <code>--onto</code> 选项之后，可以指定 <code>rebase</code> 的「起点」。一般的 <code>rebase</code>，告诉 Git 的是「我要把当前 <code>commit</code> 以及它之前的 <code>commit</code>s 重新提交到目标 <code>commit</code> 上去，这其中，<code>rebase</code> 的「起点」是自动判定的：选取当前 <code>commit</code> 和目标 <code>commit</code> 在历史上的交叉点作为起点。</p>
+<p>例如下面这种情况：</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2017/11/22/15fe24400508e3c8?w=515&amp;h=360&amp;f=jpeg&amp;s=19522"><figcaption></figcaption></figure><p></p>
+<p>如果在这里执行：</p>
+<pre><code class="hljs shell" lang="shell">git rebase 第3个commit
+</code></pre><p>那么 Git 会自动选取 <code>3</code> 和 <code>5</code> 的历史交叉点 <code>2</code> 作为 <code>rebase</code> 的起点，依次将 <code>4</code> 和 <code>5</code> 重新提交到 <code>3</code> 的路径上去。</p>
+<p>而 <code>--onto</code> 参数，就可以额外给 rebase 指定它的起点。例如同样以上图为例，如果我只想把 <code>5</code> 提交到 <code>3</code> 上，不想附带上 <code>4</code>，那么我可以执行：</p>
+<pre><code class="hljs shell" lang="shell">git rebase --onto 第3个commit 第4个commit branch1
+</code></pre><p><code>--onto</code> 参数后面有三个附加参数：目标 <code>commit</code>、起点 <code>commit</code>（注意：rebase 的时候会把起点排除在外）、终点 <code>commit</code>。所以上面这行指令就会从 <code>4</code> 往下数，拿到 <code>branch1</code> 所指向的 <code>5</code>，然后把 <code>5</code> 重新提交到 <code>3</code> 上去。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2017/11/22/15fe24400d7d73d0?w=534&amp;h=552&amp;f=gif&amp;s=199563"><figcaption></figcaption></figure><p></p>
+<p>同样的，你也可以用 <code>rebase --onto</code> 来撤销提交：</p>
+<pre><code class="hljs shell" lang="shell">git rebase --onto HEAD^^ HEAD^ branch1
+</code></pre><p>上面这行代码的意思是：以倒数第二个 <code>commit</code> 为起点（起点不包含在 <code>rebase</code> 序列里哟），<code>branch1</code> 为终点，<code>rebase</code> 到倒数第三个 <code>commit</code> 上。</p>
+<p>也就是这样：</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2017/11/22/15fe243fce5804fd?w=548&amp;h=330&amp;f=gif&amp;s=326602"><figcaption></figcaption></figure><p></p>
+<h2 class="heading">小结</h2>
+<p>这节的内容是「撤销过往的提交」。方法有两种：</p>
+<ol>
+<li>用 <code>git rebase -i</code> 在编辑界面中删除想撤销的 <code>commit</code>s</li>
+<li>用 <code>git rebase --onto</code> 在 rebase 命令中直接剔除想撤销的 <code>commit</code>s</li>
+</ol>
+<p>方法有两种，理念是一样的：在 <code>rebase</code> 的过程中去掉想撤销的 <code>commit</code>，让他它消失在历史中。</p>

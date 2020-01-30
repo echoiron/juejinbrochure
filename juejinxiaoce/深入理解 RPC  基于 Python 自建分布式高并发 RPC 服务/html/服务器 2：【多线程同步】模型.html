@@ -1,0 +1,102 @@
+<h1 class="heading">服务器 2：【多线程同步】模型</h1>
+<p>上节我们编写了一个最简单的 RPC 服务器模型，简单到同时只能处理单个连接。本节我们为服务器增加多线程并发处理能力，同时可以处理多个客户端连接。后来的客户端连接再也不用排队了。这也是古典 RPC 服务最常见的处理模型。</p>
+<p>既然要使用多线程，自然离不开 Python 内置的多线程编程库。我们在上节引出的 socket、struct 和 json 三个库的基础上再增加第四个内置库 thread，本节程序的多线程功能将由它来打开。</p>
+<h2 class="heading">thread</h2>
+<p>thread 是 Python 内置的线程库，用户可以使用 thread 库创建原生的线程。</p>
+<pre><code class="hljs bash" lang="bash">def something_heavy(params):
+    pass
+    
+thread.start_new_thread(something_heavy, (params,))
+</code></pre><p>如果需要对线程进行更加精细的控制，那就需要使用到内置的 threading 类库，它是对线程更高级的抽象，类似于 Java 语言提供的 Thread 类。不过本节不需要使用。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/5/16/163686a461346432?w=781&amp;h=396&amp;f=png&amp;s=36885"><figcaption></figcaption></figure><p></p>
+<h2 class="heading">多线程同步模型</h2>
+<p>服务器可以并行处理多个客户端，每来一个新连接，则开启一个新的线程单独进行处理。每个线程都是同步读写客户端连接。</p>
+<p>下面的代码同上节单线程同步模型代码的差别只有一行代码。为了更好的阅读体验，我们将完整的代码直接贴在下来。</p>
+<pre><code class="hljs py" lang="py"><span class="hljs-comment"># coding: utf8</span>
+<span class="hljs-comment"># multithread.py</span>
+
+<span class="hljs-keyword">import</span> json
+<span class="hljs-keyword">import</span> struct
+<span class="hljs-keyword">import</span> socket
+<span class="hljs-keyword">import</span> thread
+
+
+<span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">handle_conn</span><span class="hljs-params">(conn, addr, handlers)</span>:</span>
+    <span class="hljs-keyword">print</span> addr, <span class="hljs-string">"comes"</span>
+    <span class="hljs-keyword">while</span> <span class="hljs-keyword">True</span>:  <span class="hljs-comment"># 循环读写</span>
+        length_prefix = conn.recv(<span class="hljs-number">4</span>)  <span class="hljs-comment"># 请求长度前缀</span>
+        <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> length_prefix:  <span class="hljs-comment"># 连接关闭了</span>
+            <span class="hljs-keyword">print</span> addr, <span class="hljs-string">"bye"</span>
+            conn.close()
+            <span class="hljs-keyword">break</span>  <span class="hljs-comment"># 退出循环，退出线程</span>
+        length, = struct.unpack(<span class="hljs-string">"I"</span>, length_prefix)
+        body = conn.recv(length)  <span class="hljs-comment"># 请求消息体  </span>
+        request = json.loads(body)
+        in_ = request[<span class="hljs-string">'in'</span>]
+        params = request[<span class="hljs-string">'params'</span>]
+        <span class="hljs-keyword">print</span> in_, params
+        handler = handlers[in_]  <span class="hljs-comment"># 查找请求处理器</span>
+        handler(conn, params)  <span class="hljs-comment"># 处理请求</span>
+
+
+<span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">loop</span><span class="hljs-params">(sock, handlers)</span>:</span>
+    <span class="hljs-keyword">while</span> <span class="hljs-keyword">True</span>:
+        conn, addr = sock.accept()
+        thread.start_new_thread(handle_conn, (conn, addr, handlers))  <span class="hljs-comment"># 开启新线程进行处理，就这行代码不一样</span>
+
+
+<span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">ping</span><span class="hljs-params">(conn, params)</span>:</span>
+    send_result(conn, <span class="hljs-string">"pong"</span>, params)
+
+
+<span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">send_result</span><span class="hljs-params">(conn, out, result)</span>:</span>
+    response = json.dumps({<span class="hljs-string">"out"</span>: out, <span class="hljs-string">"result"</span>: result})
+    length_prefix = struct.pack(<span class="hljs-string">"I"</span>, len(response))
+    conn.sendall(length_prefix)
+    conn.sendall(response)
+
+
+<span class="hljs-keyword">if</span> __name__ == <span class="hljs-string">'__main__'</span>:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, <span class="hljs-number">1</span>)
+    sock.bind((<span class="hljs-string">"localhost"</span>, <span class="hljs-number">8080</span>))
+    sock.listen(<span class="hljs-number">1</span>)
+    handlers = {
+        <span class="hljs-string">"ping"</span>: ping
+    }
+    loop(sock, handlers)
+</code></pre><p>当我们同时开启 2 个客户端时，从下面服务器的输出可以看出服务器确实是在并行处理多个连接：</p>
+<pre><code class="hljs sh" lang="sh">bash&gt;  python multithread.py
+(<span class="hljs-string">'127.0.0.1'</span>, 60181) comes
+ping ireader 0
+ping ireader 1
+ping ireader 2
+ping ireader 3
+(<span class="hljs-string">'127.0.0.1'</span>, 60188) comes
+ping ireader 0
+ping ireader 4
+ping ireader 1
+ping ireader 5
+ping ireader 2
+ping ireader 6
+ping ireader 3
+ping ireader 7
+ping ireader 4
+ping ireader 8
+ping ireader 5
+ping ireader 9
+ping ireader 6
+(<span class="hljs-string">'127.0.0.1'</span>, 60181) <span class="hljs-built_in">bye</span>
+ping ireader 7
+ping ireader 8
+ping ireader 9
+(<span class="hljs-string">'127.0.0.1'</span>, 60188) <span class="hljs-built_in">bye</span>
+</code></pre><p>看到这里，读者们，你们应该感到激动，因为并发的潘多拉魔盒已经被你们打开了。并发的世界里丰富多彩，无数的高手在里面流连忘返。此刻，你们与编程高手的距离具体还差。。。。其实还是很远。</p>
+<p>下一节我们要开始讲解多进程并发，哇哇，酷毙了，有没有。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/5/19/163761b9752e1261?w=272&amp;h=160&amp;f=png&amp;s=24745"><figcaption></figcaption></figure><p></p>
+<p>多进程的魅力，Java 语言开发者多数是没有机会体验到的，他们通常只会使用多线程。</p>
+<h2 class="heading">练习题</h2>
+<ol>
+<li>增加一个新的 RPC 服务，计算斐波那契级数。</li>
+<li>增加一个新的 RPC 服务，提供 Redis 的缓存服务 API，可以在客户端使用 RPC 调用来进行缓存 key/value 的增删改操作。</li>
+</ol>

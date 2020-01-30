@@ -1,0 +1,32 @@
+<h1 class="heading">高级 1：不喜欢 merge 的分叉？用 rebase 吧</h1>
+<p>有些人不喜欢 <code>merge</code>，因为在 <code>merge</code> 之后，<code>commit</code> 历史就会出现分叉，这种分叉再汇合的结构会让有些人觉得混乱而难以管理。如果你不希望 <code>commit</code> 历史出现分叉，可以用 <code>rebase</code> 来代替 <code>merge</code>。</p>
+<h2 class="heading">rebase——在新位置重新提交</h2>
+<p><code>rebase</code> ，又是一个中国人看不懂的词。这个词的意思，你如果查一下的话：</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2017/11/21/15fdea7b6422ac3a?w=160&amp;h=128&amp;f=jpeg&amp;s=8608"><figcaption></figcaption></figure><p></p>
+<blockquote>
+<p>哈？玩个 Git 就弯了？</p>
+</blockquote>
+<p>其实这个翻译还是比较准确的。<code>rebase</code> 的意思是，给你的 <code>commit</code> 序列重新设置基础点（也就是父 <code>commit</code>）。展开来说就是，把你指定的 <code>commit</code> 以及它所在的 <code>commit</code> 串，以指定的目标 <code>commit</code> 为基础，依次重新提交一次。例如下面这个 <code>merge</code>：</p>
+<pre><code class="hljs shell" lang="shell">git merge branch1
+</code></pre><p></p><figure><img src="https://user-gold-cdn.xitu.io/2017/11/21/15fdea7b6646a1f3?w=640&amp;h=454&amp;f=gif&amp;s=175263"><figcaption></figcaption></figure><p></p>
+<p>如果把 <code>merge</code> 换成 <code>rebase</code>，可以这样操作：</p>
+<pre><code class="hljs shell" lang="shell">git checkout branch1
+git rebase master
+</code></pre><p></p><figure><img src="https://user-gold-cdn.xitu.io/2017/11/30/1600abd620a8e28c?w=698&amp;h=518&amp;f=gif&amp;s=337134"><figcaption></figcaption></figure><p></p>
+<p>可以看出，通过 <code>rebase</code>，<code>5</code> 和 <code>6</code> 两条 <code>commit</code>s 把基础点从 <code>2</code> 换成了 <code>4</code> 。通过这样的方式，就让本来分叉了的提交历史重新回到了一条线。这种「重新设置基础点」的操作，就是 <code>rebase</code> 的含义。</p>
+<p>另外，在 <code>rebase</code> 之后，记得切回 <code>master</code> 再 <code>merge</code> 一下，把 <code>master</code> 移到最新的 <code>commit</code>：</p>
+<pre><code class="hljs shell" lang="shell">git checkout master
+git merge branch1
+</code></pre><p></p><figure><img src="https://user-gold-cdn.xitu.io/2017/12/2/160149e054fe485c?w=706&amp;h=456&amp;f=gif&amp;s=207406"><figcaption></figcaption></figure><p></p>
+<blockquote>
+<p>为什么要从 <code>branch1</code> 来 <code>rebase</code>，然后再切回 <code>master</code> 再 <code>merge</code> 一下这么麻烦，而不是直接在 <code>master</code> 上执行 <code>rebase</code>？</p>
+<p>从图中可以看出，<code>rebase</code> 后的 <code>commit</code> 虽然内容和 <code>rebase</code> 之前相同，但它们已经是不同的 <code>commits</code> 了。如果直接从 <code>master</code> 执行 <code>rebase</code> 的话，就会是下面这样：</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2017/12/2/16014b5a6919c0b7?w=650&amp;h=428&amp;f=gif&amp;s=173918"><figcaption></figcaption></figure><p></p>
+<p>这就导致 <code>master</code> 上之前的两个最新 <code>commit</code> 被剔除了。如果这两个 <code>commit</code> 之前已经在中央仓库存在，这就会导致没法 <code>push</code> 了：</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2017/12/2/16014bc64d4337f8?w=643&amp;h=640&amp;f=jpeg&amp;s=58468"><figcaption></figcaption></figure><p></p>
+<p>所以，为了避免和远端仓库发生冲突，一般不要从 <code>master</code> 向其他 <code>branch</code> 执行 <code>rebase</code> 操作。而如果是 <code>master</code> 以外的 <code>branch</code> 之间的 <code>rebase</code>（比如 <code>branch1</code> 和 <code>branch2</code> 之间），就不必这么多费一步，直接 <code>rebase</code> 就好。</p>
+</blockquote>
+<h2 class="heading">小结</h2>
+<p>本节介绍的是 <code>rebase</code> 指令，它可以改变 <code>commit</code> 序列的基础点。它的使用方式很简单：</p>
+<pre><code class="hljs shell" lang="shell">git rebase 目标基础点
+</code></pre><p>需要说明的是，<code>rebase</code> 是站在需要被 <code>rebase</code> 的 <code>commit</code> 上进行操作，这点和 <code>merge</code> 是不同的。</p>

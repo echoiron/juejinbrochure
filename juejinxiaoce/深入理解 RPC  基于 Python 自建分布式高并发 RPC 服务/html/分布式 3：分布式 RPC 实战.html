@@ -1,0 +1,384 @@
+<h1 class="heading">分布式 3：分布式 RPC 实战</h1>
+<p>分布式 RPC 服务开发实战这个大作业将分为服务器和客户端两个模块，每个模块都不是特别简单。</p>
+<p>服务器要进行复杂的进程管理，客户端要进行复杂的服务列表变更处理。最终我们将打造出一个可用的高性能分布式 RPC 服务，服务器可以横向扩展到多个机器多个节点，客户端可以实时随着服务器的变动而动态切换调用地址。</p>
+<p>下面这张图就是本节大作业的全貌。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/5/31/163b40840eca31e5?w=1134&amp;h=475&amp;f=png&amp;s=95754"><figcaption></figcaption></figure><p></p>
+<p>我们先完成左半部分：</p>
+<ul>
+<li>实现出一个 PreForking 异步模型的单机 RPC 服务器；</li>
+<li>然后将服务挂接到 ZooKeeper 的树节点上；</li>
+<li>再编写客户端消费者从 ZooKeeper 中读取服务节点地址，连接 RPC 服务器进行交互；</li>
+<li>同时还要监听 ZooKeeper 树节点的变更，在 RPC 服务器节点变动时能动态调整服务列表地址。</li>
+<li>单机服务器的内容会比之前要复杂一些，因为要考虑周全，对子进程进行管理，要处理信号监听和子进程收割等，这也是对上节理论内容的实战开发应用。</li>
+</ul>
+<p>本节我们还将增加一个新的 RPC 服务，计算圆周率，使得我们的 RPC 服务不再过于单调。首先我们看圆周率公式。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/5/31/163b3f5b64ff9974?w=1288&amp;h=194&amp;f=png&amp;s=31781"><figcaption></figcaption></figure><p></p>
+<p>我们通过增大 n 的值，级数的值就越来越接近圆周率，n 的值将作为圆周率服务的参数。</p>
+<h2 class="heading">完整的 RPC 服务器</h2>
+<p>继上节的异步 prefork 服务器，下面的代码增加了服务发现、子进程收割、信号处理功能。异步多进程服务共享同样的监听地址，所以只需要父进程注册服务即可。</p>
+<ul>
+<li>父进程需要设置 SIGCHLD 信号处理函数收割意外退出的子进程，避免僵尸进程。</li>
+<li>父进程需要在进程退出之前杀死所有子进程并收割之。</li>
+<li>父进程需要在退出时关闭 zk 会话，立即释放临时节点。</li>
+<li>父进程需要考虑 waitpid 被其它信号处理函数打断时进行重试。</li>
+<li>父进程在杀死子进程时有可能遇到子进程已经提前死掉了，这时会爆出异常需要进行捕获。</li>
+</ul>
+<pre><code class="hljs py" lang="py"><span class="hljs-comment"># coding: utf8</span>
+
+<span class="hljs-keyword">import</span> os
+<span class="hljs-keyword">import</span> sys
+<span class="hljs-keyword">import</span> math
+<span class="hljs-keyword">import</span> json
+<span class="hljs-keyword">import</span> errno
+<span class="hljs-keyword">import</span> struct
+<span class="hljs-keyword">import</span> signal
+<span class="hljs-keyword">import</span> socket
+<span class="hljs-keyword">import</span> asyncore
+<span class="hljs-keyword">from</span> cStringIO <span class="hljs-keyword">import</span> StringIO
+<span class="hljs-keyword">from</span> kazoo.client <span class="hljs-keyword">import</span> KazooClient
+
+
+<span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">RPCHandler</span><span class="hljs-params">(asyncore.dispatcher_with_send)</span>:</span>
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">__init__</span><span class="hljs-params">(self, sock, addr)</span>:</span>
+        asyncore.dispatcher_with_send.__init__(self, sock=sock)
+        self.addr = addr
+        self.handlers = {
+            <span class="hljs-string">"ping"</span>: self.ping,
+            <span class="hljs-string">"pi"</span>: self.pi
+        }
+        self.rbuf = StringIO()
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">handle_connect</span><span class="hljs-params">(self)</span>:</span>
+        <span class="hljs-keyword">print</span> self.addr, <span class="hljs-string">'comes'</span>
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">handle_close</span><span class="hljs-params">(self)</span>:</span>
+        <span class="hljs-keyword">print</span> self.addr, <span class="hljs-string">'bye'</span>
+        self.close()
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">handle_read</span><span class="hljs-params">(self)</span>:</span>
+        <span class="hljs-keyword">while</span> <span class="hljs-keyword">True</span>:
+            content = self.recv(<span class="hljs-number">1024</span>)
+            <span class="hljs-keyword">if</span> content:
+                self.rbuf.write(content)
+            <span class="hljs-keyword">if</span> len(content) &lt; <span class="hljs-number">1024</span>:
+                <span class="hljs-keyword">break</span>
+        self.handle_rpc()
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">handle_rpc</span><span class="hljs-params">(self)</span>:</span>
+        <span class="hljs-keyword">while</span> <span class="hljs-keyword">True</span>:
+            self.rbuf.seek(<span class="hljs-number">0</span>)
+            length_prefix = self.rbuf.read(<span class="hljs-number">4</span>)
+            <span class="hljs-keyword">if</span> len(length_prefix) &lt; <span class="hljs-number">4</span>:
+                <span class="hljs-keyword">break</span>
+            length, = struct.unpack(<span class="hljs-string">"I"</span>, length_prefix)
+            body = self.rbuf.read(length)
+            <span class="hljs-keyword">if</span> len(body) &lt; length:
+                <span class="hljs-keyword">break</span>
+            request = json.loads(body)
+            in_ = request[<span class="hljs-string">'in'</span>]
+            params = request[<span class="hljs-string">'params'</span>]
+            <span class="hljs-keyword">print</span> os.getpid(), in_, params
+            handler = self.handlers[in_]
+            handler(params)
+            left = self.rbuf.getvalue()[length + <span class="hljs-number">4</span>:]
+            self.rbuf = StringIO()
+            self.rbuf.write(left)
+        self.rbuf.seek(<span class="hljs-number">0</span>, <span class="hljs-number">2</span>)
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">ping</span><span class="hljs-params">(self, params)</span>:</span>
+        self.send_result(<span class="hljs-string">"pong"</span>, params)
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">pi</span><span class="hljs-params">(self, n)</span>:</span>
+        s = <span class="hljs-number">0.0</span>
+        <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> range(n+<span class="hljs-number">1</span>):
+            s += <span class="hljs-number">1.0</span>/(<span class="hljs-number">2</span>*i+<span class="hljs-number">1</span>)/(<span class="hljs-number">2</span>*i+<span class="hljs-number">1</span>)
+        result = math.sqrt(<span class="hljs-number">8</span>*s)
+        self.send_result(<span class="hljs-string">"pi_r"</span>, result)
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">send_result</span><span class="hljs-params">(self, out, result)</span>:</span>
+        response = {<span class="hljs-string">"out"</span>: out, <span class="hljs-string">"result"</span>: result}
+        body = json.dumps(response)
+        length_prefix = struct.pack(<span class="hljs-string">"I"</span>, len(body))
+        self.send(length_prefix)
+        self.send(body)
+
+
+<span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">RPCServer</span><span class="hljs-params">(asyncore.dispatcher)</span>:</span>
+
+    zk_root = <span class="hljs-string">"/demo"</span>
+    zk_rpc = zk_root + <span class="hljs-string">"/rpc"</span>
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">__init__</span><span class="hljs-params">(self, host, port)</span>:</span>
+        asyncore.dispatcher.__init__(self)
+        self.host = host
+        self.port = port
+        self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.set_reuse_addr()
+        self.bind((host, port))
+        self.listen(<span class="hljs-number">1</span>)
+        self.child_pids = []
+        <span class="hljs-keyword">if</span> self.prefork(<span class="hljs-number">10</span>):  <span class="hljs-comment"># 产生子进程</span>
+            self.register_zk()  <span class="hljs-comment"># 注册服务</span>
+            self.register_parent_signal()  <span class="hljs-comment"># 父进程善后处理</span>
+        <span class="hljs-keyword">else</span>:
+            self.register_child_signal()  <span class="hljs-comment"># 子进程善后处理</span>
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">prefork</span><span class="hljs-params">(self, n)</span>:</span>
+        <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> range(n):
+            pid = os.fork()
+            <span class="hljs-keyword">if</span> pid &lt; <span class="hljs-number">0</span>:  <span class="hljs-comment"># fork error</span>
+                <span class="hljs-keyword">raise</span>
+            <span class="hljs-keyword">if</span> pid &gt; <span class="hljs-number">0</span>:  <span class="hljs-comment"># parent process</span>
+                self.child_pids.append(pid)
+                <span class="hljs-keyword">continue</span>
+            <span class="hljs-keyword">if</span> pid == <span class="hljs-number">0</span>:
+                <span class="hljs-keyword">return</span> <span class="hljs-keyword">False</span>  <span class="hljs-comment"># child process</span>
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">True</span>
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">register_zk</span><span class="hljs-params">(self)</span>:</span>
+        self.zk = KazooClient(hosts=<span class="hljs-string">'127.0.0.1:2181'</span>)
+        self.zk.start()
+        self.zk.ensure_path(self.zk_root)  <span class="hljs-comment"># 创建根节点</span>
+        value = json.dumps({<span class="hljs-string">"host"</span>: self.host, <span class="hljs-string">"port"</span>: self.port})
+        <span class="hljs-comment"># 创建服务子节点</span>
+        self.zk.create(self.zk_rpc, value, ephemeral=<span class="hljs-keyword">True</span>, sequence=<span class="hljs-keyword">True</span>)
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">exit_parent</span><span class="hljs-params">(self, sig, frame)</span>:</span>
+        self.zk.stop()  <span class="hljs-comment"># 关闭 zk 客户端</span>
+        self.close()  <span class="hljs-comment"># 关闭 serversocket</span>
+        asyncore.close_all()  <span class="hljs-comment"># 关闭所有 clientsocket</span>
+        pids = []
+        <span class="hljs-keyword">for</span> pid <span class="hljs-keyword">in</span> self.child_pids:
+            <span class="hljs-keyword">print</span> <span class="hljs-string">'before kill'</span>
+            <span class="hljs-keyword">try</span>:
+                os.kill(pid, signal.SIGINT)  <span class="hljs-comment"># 关闭子进程</span>
+                pids.append(pid)
+            <span class="hljs-keyword">except</span> OSError, ex:
+                <span class="hljs-keyword">if</span> ex.args[<span class="hljs-number">0</span>] == errno.ECHILD:  <span class="hljs-comment"># 目标子进程已经提前挂了</span>
+                    <span class="hljs-keyword">continue</span>
+                <span class="hljs-keyword">raise</span> ex
+            <span class="hljs-keyword">print</span> <span class="hljs-string">'after kill'</span>, pid
+        <span class="hljs-keyword">for</span> pid <span class="hljs-keyword">in</span> pids:
+            <span class="hljs-keyword">while</span> <span class="hljs-keyword">True</span>:
+                <span class="hljs-keyword">try</span>:
+                    os.waitpid(pid, <span class="hljs-number">0</span>)  <span class="hljs-comment"># 收割目标子进程</span>
+                    <span class="hljs-keyword">break</span>
+                <span class="hljs-keyword">except</span> OSError, ex:
+                    <span class="hljs-keyword">if</span> ex.args[<span class="hljs-number">0</span>] == errno.ECHILD:  <span class="hljs-comment"># 子进程已经割过了</span>
+                        <span class="hljs-keyword">break</span>
+                    <span class="hljs-keyword">if</span> ex.args[<span class="hljs-number">0</span>] != errno.EINTR:
+                        <span class="hljs-keyword">raise</span> ex  <span class="hljs-comment"># 被其它信号打断了，要重试</span>
+            <span class="hljs-keyword">print</span> <span class="hljs-string">'wait over'</span>, pid
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">reap_child</span><span class="hljs-params">(self, sig, frame)</span>:</span>
+        <span class="hljs-keyword">print</span> <span class="hljs-string">'before reap'</span>
+        <span class="hljs-keyword">while</span> <span class="hljs-keyword">True</span>:
+            <span class="hljs-keyword">try</span>:
+                info = os.waitpid(<span class="hljs-number">-1</span>, os.WNOHANG)  <span class="hljs-comment"># 收割任意子进程</span>
+                <span class="hljs-keyword">break</span>
+            <span class="hljs-keyword">except</span> OSError, ex:
+                <span class="hljs-keyword">if</span> ex.args[<span class="hljs-number">0</span>] == errno.ECHILD:
+                    <span class="hljs-keyword">return</span>  <span class="hljs-comment"># 没有子进程可以收割</span>
+                <span class="hljs-keyword">if</span> ex.args[<span class="hljs-number">0</span>] != errno.EINTR:
+                    <span class="hljs-keyword">raise</span> ex  <span class="hljs-comment"># 被其它信号打断要重试</span>
+        pid = info[<span class="hljs-number">0</span>]
+        <span class="hljs-keyword">try</span>:
+            self.child_pids.remove(pid)
+        <span class="hljs-keyword">except</span> ValueError:
+            <span class="hljs-keyword">pass</span>
+        <span class="hljs-keyword">print</span> <span class="hljs-string">'after reap'</span>, pid
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">register_parent_signal</span><span class="hljs-params">(self)</span>:</span>
+        signal.signal(signal.SIGINT, self.exit_parent)
+        signal.signal(signal.SIGTERM, self.exit_parent)
+        signal.signal(signal.SIGCHLD, self.reap_child)  <span class="hljs-comment"># 监听子进程退出</span>
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">exit_child</span><span class="hljs-params">(self, sig, frame)</span>:</span>
+        self.close()  <span class="hljs-comment"># 关闭 serversocket</span>
+        asyncore.close_all()  <span class="hljs-comment"># 关闭所有 clientsocket</span>
+        <span class="hljs-keyword">print</span> <span class="hljs-string">'all closed'</span>
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">register_child_signal</span><span class="hljs-params">(self)</span>:</span>
+        signal.signal(signal.SIGINT, self.exit_child)
+        signal.signal(signal.SIGTERM, self.exit_child)
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">handle_accept</span><span class="hljs-params">(self)</span>:</span>
+        pair = self.accept()  <span class="hljs-comment"># 接收新连接</span>
+        <span class="hljs-keyword">if</span> pair <span class="hljs-keyword">is</span> <span class="hljs-keyword">not</span> <span class="hljs-keyword">None</span>:
+            sock, addr = pair
+            RPCHandler(sock, addr)
+
+
+<span class="hljs-keyword">if</span> __name__ == <span class="hljs-string">'__main__'</span>:
+    host = sys.argv[<span class="hljs-number">1</span>]
+    port = int(sys.argv[<span class="hljs-number">2</span>])
+    RPCServer(host, port)
+    asyncore.loop()  <span class="hljs-comment"># 启动事件循环</span>
+</code></pre><h2 class="heading">完整的 RPC 客户端</h2>
+<p>我们给上节的客户端代码增加了获取服务列表功能，并持续监听服务列表变更，然后循环随机选出一个可用服务器发送 ping 指令和 pi 指令输出服务器反馈。</p>
+<p>当服务列表变更时，我们需要将新的服务列表和内存中现有的服务列表进行比对，创建新的连接，关闭旧的连接。</p>
+<pre><code class="hljs py" lang="py"><span class="hljs-comment"># coding: utf-8</span>
+
+<span class="hljs-keyword">import</span> json
+<span class="hljs-keyword">import</span> time
+<span class="hljs-keyword">import</span> struct
+<span class="hljs-keyword">import</span> socket
+<span class="hljs-keyword">import</span> random
+<span class="hljs-keyword">from</span> kazoo.client <span class="hljs-keyword">import</span> KazooClient
+
+zk_root = <span class="hljs-string">"/demo"</span>
+
+G = {<span class="hljs-string">"servers"</span>: <span class="hljs-keyword">None</span>}  <span class="hljs-comment"># 全局变量，RemoteServer 对象列表</span>
+
+
+<span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">RemoteServer</span><span class="hljs-params">(object)</span>:</span>  <span class="hljs-comment"># 封装 rpc 套接字对象</span>
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">__init__</span><span class="hljs-params">(self, addr)</span>:</span>
+        self.addr = addr
+        self._socket = <span class="hljs-keyword">None</span>
+
+<span class="hljs-meta">    @property</span>
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">socket</span><span class="hljs-params">(self)</span>:</span>  <span class="hljs-comment"># 懒惰连接</span>
+        <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> self._socket:
+            self.connect()
+        <span class="hljs-keyword">return</span> self._socket
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">ping</span><span class="hljs-params">(self, twitter)</span>:</span>
+        <span class="hljs-keyword">return</span> self.rpc(<span class="hljs-string">"ping"</span>, twitter)
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">pi</span><span class="hljs-params">(self, n)</span>:</span>
+        <span class="hljs-keyword">return</span> self.rpc(<span class="hljs-string">"pi"</span>, n)
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">rpc</span><span class="hljs-params">(self, in_, params)</span>:</span>
+        sock = self.socket
+        request = json.dumps({<span class="hljs-string">"in"</span>: in_, <span class="hljs-string">"params"</span>: params})
+        length_prefix = struct.pack(<span class="hljs-string">"I"</span>, len(request))
+        sock.send(length_prefix)
+        sock.sendall(request)
+        length_prefix = sock.recv(<span class="hljs-number">4</span>)
+        length, = struct.unpack(<span class="hljs-string">"I"</span>, length_prefix)
+        body = sock.recv(length)
+        response = json.loads(body)
+        <span class="hljs-keyword">return</span> response[<span class="hljs-string">"out"</span>], response[<span class="hljs-string">"result"</span>]
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">connect</span><span class="hljs-params">(self)</span>:</span>
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        host, port = self.addr.split(<span class="hljs-string">":"</span>)
+        sock.connect((host, int(port)))
+        self._socket = sock
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">reconnect</span><span class="hljs-params">(self)</span>:</span>  <span class="hljs-comment"># 重连</span>
+        self.close()
+        self.connect()
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">close</span><span class="hljs-params">(self)</span>:</span>
+        <span class="hljs-keyword">if</span> self._socket:
+            self._socket.close()
+            self._socket = <span class="hljs-keyword">None</span>
+
+
+<span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">get_servers</span><span class="hljs-params">()</span>:</span>
+    zk = KazooClient(hosts=<span class="hljs-string">"127.0.0.1:2181"</span>)
+    zk.start()
+    current_addrs = set()  <span class="hljs-comment"># 当前活跃地址列表</span>
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">watch_servers</span><span class="hljs-params">(*args)</span>:</span>  <span class="hljs-comment"># 闭包函数</span>
+        new_addrs = set()
+        <span class="hljs-comment"># 获取新的服务地址列表，并持续监听服务列表变动</span>
+        <span class="hljs-keyword">for</span> child <span class="hljs-keyword">in</span> zk.get_children(zk_root, watch=watch_servers):
+            node = zk.get(zk_root + <span class="hljs-string">"/"</span> + child)
+            addr = json.loads(node[<span class="hljs-number">0</span>])
+            new_addrs.add(<span class="hljs-string">"%s:%d"</span> % (addr[<span class="hljs-string">"host"</span>], addr[<span class="hljs-string">"port"</span>]))
+        <span class="hljs-comment"># 新增的地址</span>
+        add_addrs = new_addrs - current_addrs
+        <span class="hljs-comment"># 删除的地址</span>
+        del_addrs = current_addrs - new_addrs
+        del_servers = []
+        <span class="hljs-comment"># 先找出所有的待删除 server 对象</span>
+        <span class="hljs-keyword">for</span> addr <span class="hljs-keyword">in</span> del_addrs:
+            <span class="hljs-keyword">for</span> s <span class="hljs-keyword">in</span> G[<span class="hljs-string">"servers"</span>]:
+                <span class="hljs-keyword">if</span> s.addr == addr:
+                    del_servers.append(s)
+                    <span class="hljs-keyword">break</span>
+        <span class="hljs-comment"># 依次删除每个 server</span>
+        <span class="hljs-keyword">for</span> server <span class="hljs-keyword">in</span> del_servers:
+            G[<span class="hljs-string">"servers"</span>].remove(server)
+            current_addrs.remove(server.addr)
+        <span class="hljs-comment"># 新增 server</span>
+        <span class="hljs-keyword">for</span> addr <span class="hljs-keyword">in</span> add_addrs:
+            G[<span class="hljs-string">"servers"</span>].append(RemoteServer(addr))
+            current_addrs.add(addr)
+
+    <span class="hljs-comment"># 首次获取节点列表并持续监听服务列表变更</span>
+    <span class="hljs-keyword">for</span> child <span class="hljs-keyword">in</span> zk.get_children(zk_root, watch=watch_servers):
+        node = zk.get(zk_root + <span class="hljs-string">"/"</span> + child)
+        addr = json.loads(node[<span class="hljs-number">0</span>])
+        current_addrs.add(<span class="hljs-string">"%s:%d"</span> % (addr[<span class="hljs-string">"host"</span>], addr[<span class="hljs-string">"port"</span>]))
+    G[<span class="hljs-string">"servers"</span>] = [RemoteServer(s) <span class="hljs-keyword">for</span> s <span class="hljs-keyword">in</span> current_addrs]
+    <span class="hljs-keyword">return</span> G[<span class="hljs-string">"servers"</span>]
+
+
+<span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">random_server</span><span class="hljs-params">()</span>:</span>  <span class="hljs-comment"># 随机获取一个服务节点</span>
+    <span class="hljs-keyword">if</span> G[<span class="hljs-string">"servers"</span>] <span class="hljs-keyword">is</span> <span class="hljs-keyword">None</span>:
+        get_servers()  <span class="hljs-comment"># 首次初始化服务列表</span>
+    <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> G[<span class="hljs-string">"servers"</span>]:
+        <span class="hljs-keyword">return</span>
+    <span class="hljs-keyword">return</span> random.choice(G[<span class="hljs-string">"servers"</span>])
+
+
+<span class="hljs-keyword">if</span> __name__ == <span class="hljs-string">'__main__'</span>:
+    <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> range(<span class="hljs-number">100</span>):
+        server = random_server()
+        <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> server:
+            <span class="hljs-keyword">break</span>  <span class="hljs-comment"># 如果没有节点存活，就退出</span>
+        time.sleep(<span class="hljs-number">0.5</span>)
+        <span class="hljs-keyword">try</span>:
+            out, result = server.ping(<span class="hljs-string">"ireader %d"</span> % i)
+            <span class="hljs-keyword">print</span> server.addr, out, result
+        <span class="hljs-keyword">except</span> Exception, ex:
+            server.close()  <span class="hljs-comment"># 遇到错误，关闭连接</span>
+            <span class="hljs-keyword">print</span> ex
+        server = random_server()
+        <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> server:
+            <span class="hljs-keyword">break</span>  <span class="hljs-comment"># 如果没有节点存活，就退出</span>
+        time.sleep(<span class="hljs-number">0.5</span>)
+        <span class="hljs-keyword">try</span>:
+            out, result = server.pi(i)
+            <span class="hljs-keyword">print</span> server.addr, out, result
+        <span class="hljs-keyword">except</span> Exception, ex:
+            server.close()  <span class="hljs-comment"># 遇到错误，关闭连接</span>
+            <span class="hljs-keyword">print</span> ex
+</code></pre><h2 class="heading">运行</h2>
+<pre><code class="hljs bash" lang="bash"><span class="hljs-comment"># 开一个服务端窗口</span>
+python server.py localhost 8080
+<span class="hljs-comment"># 再开一个服务端窗口</span>
+python server.py localhost 8081
+<span class="hljs-comment"># 开一个客户端窗口</span>
+python client.py
+<span class="hljs-comment"># 再开一个客户端窗口</span>
+python client.py
+</code></pre><p>运行结果如下</p>
+<pre><code class="hljs bash" lang="bash">...
+localhost:8888 pong ireader 93
+localhost:8888 pi_r 3.1382045832
+localhost:8888 pong ireader 94
+localhost:8888 pi_r 3.13824026548
+localhost:8888 pong ireader 95
+localhost:8888 pi_r 3.13827520401
+localhost:8888 pong ireader 96
+localhost:8888 pi_r 3.13830942181
+localhost:8888 pong ireader 97
+localhost:8888 pi_r 3.13834294093
+localhost:8888 pong ireader 98
+localhost:8888 pi_r 3.13837578257
+localhost:8888 pong ireader 99
+localhost:8888 pi_r 3.13840796707
+</code></pre><p>我们看到两个服务地址都正确返回了响应，随着参数 n 的逐渐增大，pi 的值越来越接近圆周率。</p>
+<p>另外如果任意关闭一个服务节点，可以看到客户端仍然可以持续正常输出，观察输出的服务地址只剩一个了。如果再重新启动这个服务节点，客户端的输出地址自动恢复到正常的两个地址。</p>
+<h2 class="heading">小结</h2>
+<p>本节内容是 RPC 实战开发的最后一节，也是最难的一节。它涉及的知识点非常繁多。请读者务必保持耐心，对不熟悉的技术知识进行各个击破。理解本节代码需要读者具备一定的操作系统基础知识，还有 ZooKeeper 服务发现的使用方法。</p>
+<p>如果你完全理解了以上代码，说明你的水平已经进入了高级层次，这些知识在你身边至少有 90% 以上的 Python 程序员都不具备，你已经正式踏上了少有人走的路。</p>
+<p>后面我们将对最有代表性的两个开源 RPC 框架进行逐个讲解。从工程角度，使用这些开源的、成熟的大型互联网公司造出来的轮子是一个非常经济的选择。而且你已经通过「造轮子」深入理解了 RPC 原理，再应用这些开源框架，也会感到更加得心应手。</p>
+<h2 class="heading">练习</h2>
+<p>请读者将 zk 换成 etcd 来完成 RPC 服务的分布式化，这要求读者学会搭建 etcd 服务器。简单化意见，读者可以使用 Docker 来启动 etcd 服务器。</p>

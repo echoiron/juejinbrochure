@@ -1,0 +1,53 @@
+<h1 class="heading">编写兼容 HTML 与 JSON 的视图类</h1>
+<h2 class="heading">改造原理</h2>
+<h3 class="heading">为什么要改写</h3>
+<p>后面的章节中，我们将会为 Scrapyd 加上<strong>访问权限访问控制</strong>的功能。而权限既要能够在请求 HTML 资源的时候发挥作用，也要在请求 JSON 资源的时候发挥作用，当你提交正确的验证信息，它会让你通过验证并返回正确的结果（这个结果有可能是 HTML 也有可能是 JSON ），所以这里就需要编写一个兼容 HTML 与 JSON  的视图类，并且对现有的 Home、Jobs 和其他 API 进行些许调整，以达到目的。</p>
+<h3 class="heading">原理</h3>
+<p>主要是利用 Python 类的<strong>继承和多态</strong>这两个特性</p>
+<blockquote>
+<p>继承可以把父类的所有功能都直接拿过来，这样就不必从 0 做起，子类只需要新增自己特有的方法，也可以把父类不适合的方法覆盖重写；</p>
+</blockquote>
+<blockquote>
+<p>有了继承，才能有多态。在调用类实例方法的时候，尽量把变量视作父类。这样，所有子类类型都可以正常被接收；</p>
+</blockquote>
+<p>在这里，笔者需要自定义一个类，它继承<code>WsResource</code>和<code>resource.Resource</code>这两个类，这样即可拥有他们的特性，然后笔者通过重写 render 就可以达到目的。</p>
+<h2 class="heading">改造代码和步骤</h2>
+<h3 class="heading">自定义类与继承</h3>
+<p>在<code>webservice.py</code>中，笔者创建了一个名为<code>CustomResource</code>的类，它继承自 JsonResource 和 resource.Resource。由于 Python 中类继承的<code>__mro__</code>顺序存在，所以继承顺序不能随意，必须是<code>JsonResource</code> 在前面，代码如下：</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-keyword">from</span> twisted.web <span class="hljs-keyword">import</span> resource
+
+<span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">CustomResource</span><span class="hljs-params">(JsonResource, resource.Resource)</span>:</span>
+</code></pre><p>上面也提到过，通过继承的方式，我们可以让新的子类具备父类的方法及特性，还可以通过重写或者新增方法来增加新特性。</p>
+<h3 class="heading">重写 render 与 init</h3>
+<p>因为继承了两个类，根据 Python 的<code>__mro__</code>顺序，如果不重写的话是有可能出现问题的，所以笔者需要先重写<code>__init__</code>方法</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">__init__</span><span class="hljs-params">(self, root)</span>:</span>
+    JsonResource.__init__(self)
+    self.root = root
+</code></pre><p>其实就是直接使用了 JsonResource 的<code>__init__</code>方法。</p>
+<p>接着重写 render，以实现两种视图数据的兼容</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">render</span><span class="hljs-params">(self, txrequest)</span>:</span>
+    <span class="hljs-keyword">try</span>:
+        <span class="hljs-keyword">return</span> JsonResource.render(self, txrequest).encode(<span class="hljs-string">'utf-8'</span>)
+    <span class="hljs-keyword">except</span> Exception:
+        <span class="hljs-keyword">return</span> self.content
+</code></pre><p>GIF 动态图中完整的演示了 <code>CustomResource</code> 类的编码过程：
+</p><figure><img src="https://user-gold-cdn.xitu.io/2018/10/11/166627302981415b?w=1365&amp;h=862&amp;f=gif&amp;s=2830332"><figcaption></figcaption></figure>
+通过<code>try except</code>的方式来实现，优先返回 json 格式数据，如果出现错误则返回<code>self.content</code>（原 JsonResource 在 except 中返回错误信息）。<p></p>
+<h3 class="heading">新视图类的使用</h3>
+<p>编写完自定义的视图类后，笔者将在<code>website.py</code>中使用，首先将它引入</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-keyword">from</span> .webservice <span class="hljs-keyword">import</span> CustomResource
+</code></pre><p>接着将 Home 方法的父类由 resource.Resource 改为<code>CustomResource</code></p>
+<pre><code class="hljs Python" lang="Python">class Home(CustomResource)
+</code></pre><p>再在 render_GET 中将想要返回的页面赋值给变量<code>self.content</code>，最后将<code>self.content</code>返回</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">render_GET</span><span class="hljs-params">(self, request)</span>:</span>
+    ……
+    self.content = s.encode(<span class="hljs-string">'utf-8'</span>)
+    <span class="hljs-keyword">return</span> self.content
+</code></pre><p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/10/11/166627fda1053072?w=1170&amp;h=781&amp;f=gif&amp;s=3507135"><figcaption></figcaption></figure><p></p>
+<blockquote>
+<p>小提示：如果是 JSON 视图，直接继承 CustomResource 即可，Return 处无需改动。</p>
+</blockquote>
+<p>这样就完成了，当我们访问 Home 类的时候，它会根据父类 render 的设定优先返回 JSON 数据，现在是非 JSON 数据，所以会报错。进入 except 流程并返回 self.content，这样就完成了兼容 HTML 视图与 JSON 视图的自定义类<code>CustomResource</code>的编写。</p>
+<p>在<code>Jobs</code>和其他 API 上的使用方法与在<code>Home</code>上的的使用方法是一样的。</p>
+<h2 class="heading">小结</h2>
+<p>本节先理解改写原因和原理将逻辑整理清晰，然后通过实际的编码，实现了兼容 HTML 与 JSON 的视图类，为后面权限访问控制以及 Scrapyd 界面改造打下了基础。</p>

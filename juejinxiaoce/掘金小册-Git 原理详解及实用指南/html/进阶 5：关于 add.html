@@ -1,0 +1,22 @@
+<h1 class="heading">进阶 5：关于 add</h1>
+<p>前面说过了可以通过 <code>add</code> 来把改动的内容放进暂存区。这一节关于 <code>add</code> 再多说两点。都是基础的东西，但对新学 Git 的人可能有些用处。</p>
+<h2 class="heading">1. add 后面加个点 "."：全部暂存</h2>
+<p><code>add</code> 指令除了 <code>git add 文件名</code> 这种用法外，还可以使用 <code>add .</code> 来直接把工作目录下的所有改动全部放进暂存区：</p>
+<pre><code class="hljs shell" lang="shell">git status
+</code></pre><p></p><figure><img src="https://user-gold-cdn.xitu.io/2017/11/22/15fe36e3ee159b2e?w=623&amp;h=341&amp;f=jpeg&amp;s=82623"><figcaption></figcaption></figure><p></p>
+<pre><code class="hljs shell" lang="shell">git add .
+git status
+</code></pre><p></p><figure><img src="https://user-gold-cdn.xitu.io/2017/11/22/15fe36e3ed623762?w=383&amp;h=183&amp;f=jpeg&amp;s=46814"><figcaption></figcaption></figure><p></p>
+<p>这个用法没什么特别的好处，但就一个字：方便（咦？）。你在用的时候会更加深刻地体会到。</p>
+<h2 class="heading">2. add 添加的是文件改动，而不是文件名</h2>
+<p>假如你修改了文件 <code>a.txt</code>，然后把它 <code>add</code> 进了暂存区：</p>
+<pre><code class="hljs shell" lang="shell">git add a.txt
+git status
+</code></pre><p></p><figure><img src="https://user-gold-cdn.xitu.io/2017/11/22/15fe36e3ee50d1a6?w=386&amp;h=149&amp;f=jpeg&amp;s=40273"><figcaption></figcaption></figure><p></p>
+<p>然后你又往 <code>a.txt</code> 里写了几行东西。这时候你再 <code>status</code> 一下的话：</p>
+<pre><code class="hljs shell" lang="shell">git status
+</code></pre><p></p><figure><img src="https://user-gold-cdn.xitu.io/2017/11/22/15fe36e3ed9f9877?w=618&amp;h=221&amp;f=jpeg&amp;s=56939"><figcaption></figcaption></figure><p></p>
+<p>你会发现你的 <code>a.txt</code> 既在 "Changes to be commited" 的暂存区，又在 "Changes not staged for commit"。不用觉得奇怪，这是因为通过 <code>add</code> 添加进暂存区的不是文件名，而是具体的文件改动内容。你在 <code>add</code> 时的改动都被添加进了暂存区，但在 <code>add</code> 之后的新改动并不会自动被添加进暂存区。在这时如果你提交：</p>
+<pre><code class="hljs shell" lang="shell">git commit
+</code></pre><p>那么你那些新的改动是不会被提交的。</p>
+<p>这种逻辑也许会让新学 Git 的人有点困惑和感到麻烦，但当你使用 Git 一段时间后，你会发现这种设计很巧妙，而且不但不麻烦，还很方便。具体的原因我就不长篇大论地说了，你以后慢慢体会吧。</p>

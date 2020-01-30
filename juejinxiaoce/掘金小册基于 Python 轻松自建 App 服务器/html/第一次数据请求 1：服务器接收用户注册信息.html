@@ -1,0 +1,232 @@
+<h1 class="heading">第一次数据请求，服务器接收用户注册信息</h1>
+<p>本小节将是我们编写服务器端代码的开始。现在假设有这样一个 App（见下图），用户需要通过该界面提交注册信息。服务器端在接收到客户端的注册请求后，返回注册成功信息，并将该用户写入数据库表用户信息中。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/7/1629e5245ff4d0d4?w=407&amp;h=718&amp;f=png&amp;s=42477"><figcaption></figcaption></figure><p></p>
+<h2 class="heading">客户端模拟</h2>
+<p>考虑到本小册讲解的是服务器端，这里不作 App 端的介绍，我们将使用 HTTP 发包工具来模拟上面的 App 注册信息的提交。</p>
+<p>HTTP 发包工具：<a target="_blank" href="https://getman.cn/">Getman</a></p>
+<p>约定服务器端 HTTP server 的端口号为 8000，服务器端和客户端定义的请求是 <code>/users/regist</code>，那么完整的 URL 为 <code>http://150.109.33.132:8000/users/regist?</code>（请用自己的云虚拟机 IP 替换其中的 IP）。
+参数为手机号（<code>phone</code>）、密码（<code>password</code>）及验证码（<code>code</code>），参数放入 HTTP 的 body 中，具体为：
+<code>{"phone":"18866668888","password":"demo123456","code":"123456"}</code><br></p>
+<p><strong>注：</strong></p>
+<ol>
+<li>确保服务器端 8000 端口已放通；</li>
+<li>在实际的项目中，密码不会明文的传输，一般会在客户端先使用 md5 进行加密，服务器端存储的也是加密后的密码字符串。本小册作为学习示例，将使用明文讲解。<br></li>
+</ol>
+<p><strong>发包器模拟如下：</strong></p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/7/1629e672605297b9?w=779&amp;h=279&amp;f=png&amp;s=17104"><figcaption></figcaption></figure><p></p>
+<p>客户端的请求至此已初步完成，现在，服务器端接收到客户端这个请求后，将如何处理呢？</p>
+<h2 class="heading">服务器端处理</h2>
+<h3 class="heading">调用逻辑</h3>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/17/162d421ec503ec5a?w=685&amp;h=572&amp;f=png&amp;s=26711"><figcaption></figcaption></figure><p></p>
+<p>客户端以 POST 的方式，发送注册请求至服务器端，请求进入服务器端的 <code>main.py</code> 后，将调用 <code>url_router</code> 转发到 <code>users_url.py</code> 中，在 <code>users_urls.py</code> 中，对应的 URL 将调用 <code>users_views.py</code> 的 <code>RegistHandle</code> 类， <code>RegistHandle</code> 为真正的代码处理逻辑，在校验用户信息正确的情况下，返回 JSON 格式的注册成功信息给客户端。</p>
+<h3 class="heading">编写服务器端入口函数</h3>
+<p><code>main.py</code> 是 Tornado 作为 HTTP 服务器的统一入口，根据前面的约定，Tornado 对外服务的端口号为 8000。</p>
+<pre><code class="hljs python" lang="python"><span class="hljs-comment">#! /usr/bin/python3</span>
+<span class="hljs-comment"># -*- coding:utf-8 -*-</span>
+<span class="hljs-comment"># Author: demo</span>
+<span class="hljs-comment"># Email: demo@demo.com</span>
+<span class="hljs-comment"># Version: demo</span>
+
+<span class="hljs-keyword">import</span> tornado.ioloop
+<span class="hljs-keyword">import</span> tornado.web
+<span class="hljs-keyword">import</span> os
+<span class="hljs-keyword">import</span> sys
+<span class="hljs-keyword">from</span> tornado.options <span class="hljs-keyword">import</span> define,options
+
+<span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">Application</span><span class="hljs-params">(tornado.web.Application)</span>:</span>
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">__init__</span><span class="hljs-params">(self)</span>:</span>
+        <span class="hljs-comment">#定义 Tornado 服务器的配置项，如 static/templates 目录位置、debug 级别等</span>
+        settings = dict(
+            debug=<span class="hljs-keyword">True</span>,
+            static_path=os.path.join(os.path.dirname(__file__),<span class="hljs-string">"static"</span>),
+            template_path=os.path.join(os.path.dirname(__file__), <span class="hljs-string">"templates"</span>)
+        )
+        tornado.web.Application.__init__(self, **settings)
+ 
+ 
+ 
+<span class="hljs-keyword">if</span> __name__ == <span class="hljs-string">'__main__'</span>:
+    <span class="hljs-keyword">print</span> (<span class="hljs-string">"Tornado server is ready for service\r"</span>)
+    tornado.options.parse_command_line()
+    Application().listen(<span class="hljs-number">8000</span>, xheaders=<span class="hljs-keyword">True</span>)
+    tornado.ioloop.IOLoop.instance().start()
+</code></pre><p>保存 <code>main.py</code> 代码后，在服务器端运行此段代码</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/7/1629e6756e0779e5?w=831&amp;h=116&amp;f=png&amp;s=12072"><figcaption></figcaption></figure><p></p>
+<p>此时再次点击 HTTP 发包模拟器发送注册信息<br>
+URL: <code>http://150.109.33.132:8000/users/regist?</code><br>
+入参：<code>{"phone":"18866668888","password":"demo123456","code":"123456"}</code></p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/7/1629e6772d17bd6b?w=872&amp;h=566&amp;f=png&amp;s=35971"><figcaption></figcaption></figure><p></p>
+<p>再次查看服务器端</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/7/1629e6792966cf9e?w=971&amp;h=164&amp;f=png&amp;s=18437"><figcaption></figcaption></figure><p></p>
+<p>此条打印说明，客户端的 HTTP 请求已到达服务器，服务器接收成功但处理失败了，原因为找不到路径 <code>/users/regist</code>。下面在服务器端编写针对  <code>/users/regist</code> 的处理代码。</p>
+<h3 class="heading">编写路由转发</h3>
+<p>首先，服务器端从 <code>main.py</code> 收到客户端的请求后，需要将其转发给对应的处理模块。进入 common 目录，创建 <code>url_router.py</code> 文件</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/26/162fec3892c373b3?w=864&amp;h=162&amp;f=png&amp;s=19504"><figcaption></figcaption></figure><p></p>
+<p>在 <code>url_router.py</code> 中输入如下代码。</p>
+<pre><code class="hljs python" lang="python"><span class="hljs-comment">#!/usr/bin/python3</span>
+<span class="hljs-comment"># -*- coding:utf-8 -*-</span>
+
+<span class="hljs-keyword">from</span> __future__ <span class="hljs-keyword">import</span> unicode_literals
+<span class="hljs-keyword">from</span> importlib <span class="hljs-keyword">import</span> import_module
+
+<span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">include</span><span class="hljs-params">(module)</span>:</span>
+    <span class="hljs-string">'''根据传入的字符串，调用相应的模块,如 module 为字符串 regist 时，
+    调用views.users.users_views.RegistHandle 模块
+    '''</span>
+    res = import_module(module)
+    urls = getattr(res, <span class="hljs-string">'urls'</span>, res)
+    <span class="hljs-keyword">return</span> urls
+    
+    
+<span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">url_wrapper</span><span class="hljs-params">(urls)</span>:</span>
+    <span class="hljs-string">'''拼接请求 url，调用对应的模块，如拼接 users 和 regist 成 url /users/regist，
+    调用 views.users.users_views.RegistHandle 模块
+    '''</span>
+    wrapper_list = []
+    <span class="hljs-keyword">for</span> url <span class="hljs-keyword">in</span> urls:
+        path, handles = url
+        <span class="hljs-keyword">if</span> isinstance(handles, (tuple, list)):
+            <span class="hljs-keyword">for</span> handle <span class="hljs-keyword">in</span> handles:
+                <span class="hljs-comment">#分离获取字符串（如regist）和调用类（如views.users.users_views.RegistHandle）</span>
+                pattern, handle_class = handle
+                <span class="hljs-comment">#拼接url，新的url调用模块</span>
+                wrap = (<span class="hljs-string">'{0}{1}'</span>.format(path, pattern), handle_class)
+                wrapper_list.append(wrap)
+        <span class="hljs-keyword">else</span>:
+            wrapper_list.append((path, handles))
+    <span class="hljs-keyword">return</span> wrapper_list
+</code></pre><p>接下来修改 <code>main.py</code>，调用 <code>url_router.py</code> 将用户请求的路径转发给对应的请求模块。</p>
+<p>增加如下几行，从 <code>common</code> 目录的 <code>url_router</code> 导入所需函数（ <code>from common.url_router import include, url_wrapper</code>），并在 <code>Application</code> 的类中，拼接转发路由。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/7/1629e683eae8d788?w=651&amp;h=616&amp;f=png&amp;s=41332"><figcaption></figcaption></figure><p></p>
+<p>完成后的代码如下：</p>
+<pre><code class="hljs python" lang="python"><span class="hljs-comment">#! /usr/bin/python3</span>
+<span class="hljs-comment"># -*- coding:utf-8 -*-</span>
+<span class="hljs-comment"># Author: demo</span>
+<span class="hljs-comment"># Email: demo@demo.com</span>
+<span class="hljs-comment"># Version: demo</span>
+
+<span class="hljs-keyword">import</span> tornado.ioloop
+<span class="hljs-keyword">import</span> tornado.web
+<span class="hljs-keyword">import</span> os
+<span class="hljs-keyword">import</span> sys
+<span class="hljs-keyword">from</span> tornado.options <span class="hljs-keyword">import</span> define,options
+<span class="hljs-keyword">from</span> common.url_router <span class="hljs-keyword">import</span> include, url_wrapper
+<span class="hljs-keyword">from</span> tornado.options <span class="hljs-keyword">import</span> define,options
+
+
+<span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">Application</span><span class="hljs-params">(tornado.web.Application)</span>:</span>
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">__init__</span><span class="hljs-params">(self)</span>:</span>
+        handlers = url_wrapper([
+        (<span class="hljs-string">r"/users/"</span>, include(<span class="hljs-string">'views.users.users_urls'</span>))
+        ])
+        <span class="hljs-comment">#定义 Tornado 服务器的配置项，如 static/templates 目录位置，debug 级别等</span>
+        settings = dict(
+            debug=<span class="hljs-keyword">True</span>,
+            static_path=os.path.join(os.path.dirname(__file__),<span class="hljs-string">"static"</span>),
+            template_path=os.path.join(os.path.dirname(__file__), <span class="hljs-string">"templates"</span>)
+        )
+        tornado.web.Application.__init__(self, handlers, **settings)
+ 
+
+<span class="hljs-keyword">if</span> __name__ == <span class="hljs-string">'__main__'</span>:
+    <span class="hljs-keyword">print</span> (<span class="hljs-string">"Tornado server is ready for service\r"</span>)
+    tornado.options.parse_command_line()
+    Application().listen(<span class="hljs-number">8000</span>, xheaders=<span class="hljs-keyword">True</span>)
+    tornado.ioloop.IOLoop.instance().start()
+</code></pre><p>至此，<code>main.py</code> 的路由转发已完成，接下来将编写真正的处理模块。</p>
+<p>进入 views 目录，创建 users 目录，该目录将存放所有跟用户信息处理相关的代码。在该目录下，创建 <code>users_urls.py</code>、<code>users_views.py</code>。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/26/1630193b94de9b25?w=457&amp;h=117&amp;f=png&amp;s=6776"><figcaption></figcaption></figure>
+其中，<code>users_urls.py</code> 处理针对 <code>users</code> 相关的路由及调用类之间的路由，<code>users_views.py</code> 为真正的逻辑处理。在 <code>users_urls.py</code> 中输入如下代码：<p></p>
+<pre><code class="hljs python" lang="python"><span class="hljs-comment">#! /usr/bin/python3</span>
+<span class="hljs-comment"># -*- coding:utf-8 -*-</span>
+
+
+<span class="hljs-keyword">from</span> __future__ <span class="hljs-keyword">import</span> unicode_literals
+<span class="hljs-keyword">from</span> .users_views <span class="hljs-keyword">import</span> (
+    RegistHandle
+)
+
+urls = [
+    <span class="hljs-comment">#从 /users/regist 过来的请求，将调用 users_views 里面的 RegistHandle 类</span>
+    (<span class="hljs-string">r'regist'</span>, RegistHandle)
+]
+	
+</code></pre><p>在 <code>users_views.py</code> 文件中，输入如下代码：</p>
+<pre><code class="hljs python" lang="python"><span class="hljs-comment">#! /usr/bin/python3</span>
+<span class="hljs-comment"># -*- coding:utf-8 -*-</span>
+
+<span class="hljs-keyword">import</span> tornado.web
+<span class="hljs-keyword">from</span> tornado.escape <span class="hljs-keyword">import</span> json_decode
+
+<span class="hljs-comment"># 从commons中导入http_response方法</span>
+<span class="hljs-keyword">from</span> common.commons <span class="hljs-keyword">import</span> (
+    http_response,
+)
+
+<span class="hljs-comment"># 从配置文件中导入错误码</span>
+<span class="hljs-keyword">from</span> conf.base <span class="hljs-keyword">import</span> (
+    ERROR_CODE,
+)
+ 
+<span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">RegistHandle</span><span class="hljs-params">(tornado.web.RequestHandler)</span>:</span>
+    <span class="hljs-string">"""handle /user/regist request
+    :param phone: users sign up phone
+    :param password: users sign up password
+    :param code: users sign up code, must six digital code
+    """</span>
+        
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">post</span><span class="hljs-params">(self)</span>:</span>
+        <span class="hljs-keyword">try</span>:
+            <span class="hljs-comment">#获取入参</span>
+            args = json_decode(self.request.body)
+            phone = args[<span class="hljs-string">'phone'</span>]
+            password = args[<span class="hljs-string">'password'</span>]
+            verify_code = args[<span class="hljs-string">'code'</span>]
+        <span class="hljs-keyword">except</span>:
+            <span class="hljs-comment"># 获取入参失败时，抛出错误码及错误信息</span>
+            http_response(self, ERROR_CODE[<span class="hljs-string">'1001'</span>], <span class="hljs-number">1001</span>)
+            <span class="hljs-keyword">return</span> 
+            
+        <span class="hljs-comment"># 处理成功后，返回成功码“0”及成功信息“ok”</span>
+        http_response(self, ERROR_CODE[<span class="hljs-string">'0'</span>], <span class="hljs-number">0</span>)
+</code></pre><p>在<code>users_views.py</code> 中看到，我们从公共方法库（<code>commons</code>）中导入了方法，并从配置文件中导入了错误码定义。接下来编写 <code>commons</code> 及 <code>base</code> 配置文件。
+进入 common 目录，并创建 <code>commons.py</code> 文件，在 <code>commons.py</code> 中输入如下代码：</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/7/1629e68ccde8beef?w=642&amp;h=84&amp;f=png&amp;s=10262"><figcaption></figcaption></figure><p></p>
+<pre><code class="hljs python" lang="python"><span class="hljs-comment">#! /usr/bin/python3</span>
+<span class="hljs-comment"># -*- coding:utf-8 -*-</span>
+
+<span class="hljs-keyword">import</span> json
+
+<span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">http_response</span><span class="hljs-params">(self, msg, code)</span>:</span>
+    self.write(json.dumps({<span class="hljs-string">"data"</span>: {<span class="hljs-string">"msg"</span>: msg, <span class="hljs-string">"code"</span>: code}}))
+
+        
+<span class="hljs-keyword">if</span> __name__ == <span class="hljs-string">"__main__"</span>:
+   http_response()
+</code></pre><p>在 conf 目录下，创建 <code>base.py</code> 文件：</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/26/1630196b72f2d727?w=489&amp;h=134&amp;f=png&amp;s=6687"><figcaption></figcaption></figure><p></p>
+<p>在 <code>base.py</code> 文件中，输入如下代码：</p>
+<pre><code class="hljs python" lang="python"><span class="hljs-comment">#! /usr/bin/python3</span>
+<span class="hljs-comment"># -*- coding:utf-8 -*-</span>
+
+ERROR_CODE = {
+    <span class="hljs-string">"0"</span>: <span class="hljs-string">"ok"</span>,
+    <span class="hljs-comment">#Users error code</span>
+    <span class="hljs-string">"1001"</span>: <span class="hljs-string">"入参非法"</span>
+}
+</code></pre><p>至此，我们已经完成了基本的用户注册以及服务器端处理逻辑代码，重新运行 <code>main.py</code>，查看是否启动正常。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/7/1629e69187e0fc2a?w=836&amp;h=133&amp;f=png&amp;s=14983"><figcaption></figcaption></figure><p></p>
+<p>现在再从 HTTP 发包模拟器</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/7/1629e6931784b422?w=795&amp;h=583&amp;f=png&amp;s=25718"><figcaption></figcaption></figure><p></p>
+<p>此时看到返回的 JSON 消息已成功。</p>
+<p>再次查看服务器端，此时控制台打印的 log 提示 HTTP 200，表示该条 URL 请求已正确处理并返回。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/7/1629e695cfc9bfd8?w=987&amp;h=153&amp;f=png&amp;s=19756"><figcaption></figcaption></figure><p></p>
+<p>假如此时 HTTP 发包模拟器入参少了 <code>code</code> 参数，将提示错误信息。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/7/1629e697a5a92e2d?w=683&amp;h=582&amp;f=png&amp;s=25059"><figcaption></figcaption></figure><p></p>
+<p>至此，我们第一次客户端与服务器端的数据请求及回复已讲解完毕。完成后的目录结构及文件如下。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/22/162ea8b6d4f5c4c6?w=818&amp;h=520&amp;f=png&amp;s=59180"><figcaption></figcaption></figure><p></p>
+<h2 class="heading">代码下载</h2>
+<p>到目前为止，服务器端代码如下：<br>
+<a target="_blank" href="https://github.com/Jawish185/demo6.git">demo6</a></p>
+<h2 class="heading">小结</h2>
+<p>本小节讲解了客户端与服务器端的第一次数据请求及回复。代码比较简单，重点在于理解其中的 URL 路由转发，以达到触类旁通的效果。代码还有很多待完善的地方，如增加 log 管理，进一步抽象类和方法等。下一小节，我们将为代码加入 log 管理。</p>

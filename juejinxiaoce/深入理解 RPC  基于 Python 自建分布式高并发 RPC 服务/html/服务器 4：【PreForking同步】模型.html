@@ -1,0 +1,81 @@
+<h1 class="heading">服务器 4：【PreForking同步】模型</h1>
+<p>进程要比线程更加吃资源，如果来一个连接就开一个进程，当连接比较多时，进程数量也会跟着多起来，操作系统的调度压力也就会比较大。所以我们要对服务器开辟的进程数量进行限制，避免系统负载过重。这就需要掌握多进程 PreForking 模型。</p>
+<h2 class="heading">多进程 PreForking 模型</h2>
+<p>采用 PreForking 模型可以对子进程的数量进行了限制。PreForking 是通过预先产生多个子进程，共同对服务器套接字进行竞争性的 accept，当一个连接到来时，每个子进程都有机会拿到这个连接，但是最终只会有一个进程能 accept 成功返回拿到连接。子进程拿到连接后，进程内部可以继续使用单线程或者多线程同步的形式对连接进行处理。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/5/16/163686ba498563be?w=722&amp;h=383&amp;f=png&amp;s=31336"><figcaption></figcaption></figure><p></p>
+<p>下面的例子中，我们的子进程内部使用单线程对连接进行处理。</p>
+<pre><code class="hljs py" lang="py"><span class="hljs-comment"># coding: utf8</span>
+<span class="hljs-comment"># prefork.py</span>
+
+<span class="hljs-keyword">import</span> os
+<span class="hljs-keyword">import</span> json
+<span class="hljs-keyword">import</span> struct
+<span class="hljs-keyword">import</span> socket
+
+
+<span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">handle_conn</span><span class="hljs-params">(conn, addr, handlers)</span>:</span>
+    <span class="hljs-keyword">print</span> addr, <span class="hljs-string">"comes"</span>
+    <span class="hljs-keyword">while</span> <span class="hljs-keyword">True</span>:
+        length_prefix = conn.recv(<span class="hljs-number">4</span>)
+        <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> length_prefix:
+            <span class="hljs-keyword">print</span> addr, <span class="hljs-string">"bye"</span>
+            conn.close()
+            <span class="hljs-keyword">break</span>  <span class="hljs-comment"># 关闭连接，继续处理下一个连接</span>
+        length, = struct.unpack(<span class="hljs-string">"I"</span>, length_prefix)
+        body = conn.recv(length)
+        request = json.loads(body)
+        in_ = request[<span class="hljs-string">'in'</span>]
+        params = request[<span class="hljs-string">'params'</span>]
+        <span class="hljs-keyword">print</span> in_, params
+        handler = handlers[in_]
+        handler(conn, params)
+
+
+<span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">loop</span><span class="hljs-params">(sock, handlers)</span>:</span>
+    <span class="hljs-keyword">while</span> <span class="hljs-keyword">True</span>:
+        conn, addr = sock.accept()
+        handle_conn(conn, addr, handlers)
+
+
+<span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">ping</span><span class="hljs-params">(conn, params)</span>:</span>
+    send_result(conn, <span class="hljs-string">"pong"</span>, params)
+
+
+<span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">send_result</span><span class="hljs-params">(conn, out, result)</span>:</span>
+    response = json.dumps({<span class="hljs-string">"out"</span>: out, <span class="hljs-string">"result"</span>: result})
+    length_prefix = struct.pack(<span class="hljs-string">"I"</span>, len(response))
+    conn.sendall(length_prefix)
+    conn.sendall(response)
+
+
+<span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">prefork</span><span class="hljs-params">(n)</span>:</span>
+    <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> range(n):
+        pid = os.fork()
+        <span class="hljs-keyword">if</span> pid &lt; <span class="hljs-number">0</span>:  <span class="hljs-comment"># fork error</span>
+            <span class="hljs-keyword">return</span>
+        <span class="hljs-keyword">if</span> pid &gt; <span class="hljs-number">0</span>:  <span class="hljs-comment"># parent process</span>
+            <span class="hljs-keyword">continue</span>
+        <span class="hljs-keyword">if</span> pid == <span class="hljs-number">0</span>:
+            <span class="hljs-keyword">break</span>  <span class="hljs-comment"># child process</span>
+
+
+<span class="hljs-keyword">if</span> __name__ == <span class="hljs-string">'__main__'</span>:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, <span class="hljs-number">1</span>)
+    sock.bind((<span class="hljs-string">"localhost"</span>, <span class="hljs-number">8080</span>))
+    sock.listen(<span class="hljs-number">1</span>)
+    prefork(<span class="hljs-number">10</span>)  <span class="hljs-comment"># 好戏在这里，开启了 10 个子进程</span>
+    handlers = {
+        <span class="hljs-string">"ping"</span>: ping
+    }
+    loop(sock, handlers)
+</code></pre><p>如果并行的连接数超过了 prefork 进程的数量，那么后来的客户端请求将会阻塞，因为正在处理连接的子进程是没有机会去调用 accept 来获取新连接的。为了不阻塞新的客户端，我们可以将子进程的单线程同步模型改成多线程同步模型即可。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/5/16/163686cd2e845425?w=935&amp;h=442&amp;f=png&amp;s=53008"><figcaption></figcaption></figure><p></p>
+<h2 class="heading">accept 竞争</h2>
+<p>prefork 之后，父进程创建的服务套接字引用，每个子进程也会继承一份，它们共同指向了操作系统内核的套接字对象，共享了同一份连接监听队列。子进程和父进程一样都可以对服务套接字进行 accept 调用，从共享的监听队列中摘取一个新连接进行处理。</p>
+<h2 class="heading">小结</h2>
+<p>到目前为止，你们已经掌握了很多自己从来未曾听过的技术，但是我要说明的是这些知识还只能称得上是古典的 RPC 并发技术。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/5/19/16376b94eac96ce5?w=300&amp;h=263&amp;f=jpeg&amp;s=9330"><figcaption></figcaption></figure><p></p>
+<p>下一节我们要开始使用现代化技术来武装自己——异步高并发。</p>
+<h2 class="heading">练习</h2>
+<p>PreForking 是进程池模型，相对应的线程池模型，我们目前并没有提及。读者是不是可以自己尝试完成一个线程池模型的 RPC 服务器呢？</p>

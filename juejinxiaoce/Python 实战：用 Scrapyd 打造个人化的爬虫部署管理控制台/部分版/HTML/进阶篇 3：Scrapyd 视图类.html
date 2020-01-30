@@ -1,0 +1,305 @@
+<h1 class="heading">Scrapyd 视图类</h1>
+<p>在 <a target="_blank" href="https://juejin.im/book/5bb5d3fa6fb9a05d2a1d819a/section/5bb5ed2ff265da0aa06f08ac">Scrapyd 源码目录</a>结构注解中，<code>website.py</code> 代表 Web 视图，<code>webservice.py</code> 代表 JSON 视图。</p>
+<p>视图是使用者与 Scrapyd 交互的窗口，本小节我们通过阅读源码来理解 Scrapyd 的视图设计。</p>
+<h2 class="heading">Web 视图</h2>
+<p>Scrapyd 提供 Web 视图是为了便于使用者监视爬虫运行状态。<code>website.py</code> 中有 3个类，它们分别是：</p>
+<pre><code>1.Root - 根据配置文件初始化项目并设置路由映射关系。
+2.Home - Scrapyd 的 Web 首页功能实现及页面渲染。
+3.Jobs - Scrapyd 的 jobs 页面功能实现及页面渲染。
+</code></pre>
+<h2 class="heading">Root 类</h2>
+<p><strong>Root 类</strong>的作用大致为根据配置文件对项目进行初始化并设置路由映射关系，其代码如下：</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">Root</span><span class="hljs-params">(resource.Resource)</span>:</span>
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">__init__</span><span class="hljs-params">(self, config, app)</span>:</span>
+        resource.Resource.__init__(self)
+        self.debug = config.getboolean(<span class="hljs-string">'debug'</span>, <span class="hljs-keyword">False</span>)
+        self.runner = config.get(<span class="hljs-string">'runner'</span>)
+        logsdir = config.get(<span class="hljs-string">'logs_dir'</span>)
+        itemsdir = config.get(<span class="hljs-string">'items_dir'</span>)
+        local_items = itemsdir <span class="hljs-keyword">and</span> (urlparse(itemsdir).scheme.lower() <span class="hljs-keyword">in</span> [<span class="hljs-string">''</span>, <span class="hljs-string">'file'</span>])
+        self.app = app
+        self.nodename = config.get(<span class="hljs-string">'node_name'</span>, socket.gethostname())
+        self.putChild(<span class="hljs-string">b''</span>, Home(self, local_items))
+        <span class="hljs-keyword">if</span> logsdir:
+            self.putChild(<span class="hljs-string">b'logs'</span>, static.File(logsdir.encode(<span class="hljs-string">'ascii'</span>, <span class="hljs-string">'ignore'</span>), <span class="hljs-string">'text/plain'</span>))
+        <span class="hljs-keyword">if</span> local_items:
+            self.putChild(<span class="hljs-string">b'items'</span>, static.File(itemsdir, <span class="hljs-string">'text/plain'</span>))
+        self.putChild(<span class="hljs-string">b'jobs'</span>, Jobs(self, local_items))
+        services = config.items(<span class="hljs-string">'services'</span>, ())
+        <span class="hljs-keyword">for</span> servName, servClsName <span class="hljs-keyword">in</span> services:
+          servCls = load_object(servClsName)
+          self.putChild(servName.encode(<span class="hljs-string">'utf-8'</span>), servCls(self))
+        self.update_projects()
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">update_projects</span><span class="hljs-params">(self)</span>:</span>
+        self.poller.update_projects()
+        self.scheduler.update_projects()
+
+<span class="hljs-meta">    @property</span>
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">launcher</span><span class="hljs-params">(self)</span>:</span>
+        app = IServiceCollection(self.app, self.app)
+        <span class="hljs-keyword">return</span> app.getServiceNamed(<span class="hljs-string">'launcher'</span>)
+
+<span class="hljs-meta">    @property</span>
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">scheduler</span><span class="hljs-params">(self)</span>:</span>
+        <span class="hljs-keyword">return</span> self.app.getComponent(ISpiderScheduler)
+
+<span class="hljs-meta">    @property</span>
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">eggstorage</span><span class="hljs-params">(self)</span>:</span>
+        <span class="hljs-keyword">return</span> self.app.getComponent(IEggStorage)
+
+<span class="hljs-meta">    @property</span>
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">poller</span><span class="hljs-params">(self)</span>:</span>
+        <span class="hljs-keyword">return</span> self.app.getComponent(IPoller)
+</code></pre><p>代码释义：
+Root 类继承自<code>resource.Resource</code>，
+在<code>__init__</code>方法中通过 <code>config.get</code> 读取配置文件中相关配置并赋值给变量，通过 <code>putChild</code> 语法将资源与 URL 进行映射（路由），在 <code>update_projects</code> 方法中更新项目状态。</p>
+<h2 class="heading">Home 类</h2>
+<p><strong>Home 类</strong>的作用大致为<code>Scrapyd</code>的<code>Web</code>首页功能实现及页面渲染，其代码大体如下：</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">Home</span><span class="hljs-params">(resource.Resource)</span>:</span>
+    
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">__init__</span><span class="hljs-params">(self, root, local_items)</span>:</span>
+        resource.Resource.__init__(self)
+        self.root = root
+        self.local_items = local_items
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">render_GET</span><span class="hljs-params">(self, txrequest)</span>:</span>
+        vars = {
+            <span class="hljs-string">'projects'</span>: <span class="hljs-string">', '</span>.join(self.root.scheduler.list_projects())
+        }
+        s = <span class="hljs-string">"""
+        &lt;html&gt;
+        &lt;head&gt;&lt;title&gt;Scrapyd&lt;/title&gt;&lt;/head&gt;
+        &lt;body&gt;
+        &lt;h1&gt;Scrapyd&lt;/h1&gt;
+        &lt;p&gt;Available projects: &lt;b&gt;%(projects)s&lt;/b&gt;&lt;/p&gt;
+        &lt;ul&gt;
+        &lt;li&gt;&lt;a href="/jobs"&gt;Jobs&lt;/a&gt;&lt;/li&gt;
+        """</span> % vars
+                <span class="hljs-keyword">if</span> self.local_items:
+                    s += <span class="hljs-string">'&lt;li&gt;&lt;a href="/items/"&gt;Items&lt;/a&gt;&lt;/li&gt;'</span>
+                s += <span class="hljs-string">"""
+        ...html ...
+        """</span> % vars
+        <span class="hljs-keyword">return</span> s.encode(<span class="hljs-string">'utf-8'</span>)
+</code></pre><p>代码释义：Home 类继承自 <code>resource.Resource</code>。
+在 <code>render_GET</code>方法中，获取项目列表<code>self.root.scheduler.list_projects()</code>,然后构造 Web 界面的 HTML 代码。最终将 utf-8 编码的 HTML 代码进行渲染。</p>
+<h2 class="heading">Jobs 类</h2>
+<p><strong>Jobs 类</strong>的作用大致为<code>Scrapyd</code>的<code>/jobs</code>页面的功能实现及页面渲染，其代码大体如下：</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">Jobs</span><span class="hljs-params">(resource.Resource)</span>:</span>
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">__init__</span><span class="hljs-params">(self, root, local_items)</span>:</span>
+        resource.Resource.__init__(self)
+        self.root = root
+        self.local_items = local_items
+
+    cancel_button = <span class="hljs-string">"""
+    form...
+    """</span>.format
+
+    header_cols = [
+        <span class="hljs-string">'Project'</span>, <span class="hljs-string">'Spider'</span>,
+        <span class="hljs-string">'Job'</span>, <span class="hljs-string">'PID'</span>,
+        <span class="hljs-string">'Start'</span>, <span class="hljs-string">'Runtime'</span>, <span class="hljs-string">'Finish'</span>,
+        <span class="hljs-string">'Log'</span>, <span class="hljs-string">'Items'</span>,
+        <span class="hljs-string">'Cancel'</span>,
+    ]
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">gen_css</span><span class="hljs-params">(self)</span>:</span>
+        css...
+        <span class="hljs-keyword">return</span> <span class="hljs-string">'\n'</span>.join(css)
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">prep_row</span><span class="hljs-params">(self, cells)</span>:</span>
+        <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> isinstance(cells, dict):
+            <span class="hljs-keyword">assert</span> len(cells) == len(self.header_cols)
+        <span class="hljs-keyword">else</span>:
+            cells = [cells.get(k) <span class="hljs-keyword">for</span> k <span class="hljs-keyword">in</span> self.header_cols]
+        cells = [<span class="hljs-string">'&lt;td&gt;%s&lt;/td&gt;'</span> % (<span class="hljs-string">''</span> <span class="hljs-keyword">if</span> c <span class="hljs-keyword">is</span> <span class="hljs-keyword">None</span> <span class="hljs-keyword">else</span> c) <span class="hljs-keyword">for</span> c <span class="hljs-keyword">in</span> cells]
+        <span class="hljs-keyword">return</span> <span class="hljs-string">'&lt;tr&gt;%s&lt;/tr&gt;'</span> % <span class="hljs-string">''</span>.join(cells)
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">prep_doc</span><span class="hljs-params">(self)</span>:</span>
+        <span class="hljs-keyword">return</span> (
+            html...
+        )
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">prep_table</span><span class="hljs-params">(self)</span>:</span>
+        <span class="hljs-keyword">return</span> (
+            html-table...
+        )
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">prep_tab_pending</span><span class="hljs-params">(self)</span>:</span>
+        <span class="hljs-keyword">return</span> <span class="hljs-string">'\n'</span>.join(
+            self.prep_row(dict(
+                Project=project, Spider=m[<span class="hljs-string">'name'</span>], Job=m[<span class="hljs-string">'_job'</span>],
+                Cancel=self.cancel_button(project=project, jobid=m[<span class="hljs-string">'_job'</span>])
+            ))
+            <span class="hljs-keyword">for</span> project, queue <span class="hljs-keyword">in</span> self.root.poller.queues.items()
+            <span class="hljs-keyword">for</span> m <span class="hljs-keyword">in</span> queue.list()
+        )
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">prep_tab_running</span><span class="hljs-params">(self)</span>:</span>
+        <span class="hljs-keyword">return</span> <span class="hljs-string">'\n'</span>.join(
+            self.prep_row(dict(
+                ...
+            ))
+            <span class="hljs-keyword">for</span> p <span class="hljs-keyword">in</span> self.root.launcher.processes.values()
+        )
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">prep_tab_finished</span><span class="hljs-params">(self)</span>:</span>
+        <span class="hljs-keyword">return</span> <span class="hljs-string">'\n'</span>.join(
+            self.prep_row(dict(
+                ...
+            ))
+            <span class="hljs-keyword">for</span> p <span class="hljs-keyword">in</span> self.root.launcher.finished
+        )
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">render</span><span class="hljs-params">(self, txrequest)</span>:</span>
+        doc = self.prep_doc()
+        txrequest.setHeader(<span class="hljs-string">'Content-Type'</span>, <span class="hljs-string">'text/html; charset=utf-8'</span>)
+        txrequest.setHeader(<span class="hljs-string">'Content-Length'</span>, len(doc))
+        <span class="hljs-keyword">return</span> doc.encode(<span class="hljs-string">'utf-8'</span>)
+</code></pre><p>可以看到，Jobs 继承的也是 <code>resource.Resource</code>。</p>
+<p>Jobs 中的方法是层级调用的关系，从 render 方法开始，调用<code>self.prep_doc()</code>以获取 HTML 文本，而<code>prep_doc</code>方法则通过调用<code>gen_css</code>和<code>prep_table</code>以获取 CSS 样式及不同状态的爬虫数与爬虫运行记录。所以我们可以绘制出<code>website.py</code>文件中各个类与方法的组织结构图：</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/10/11/1666220a646bbba9?w=927&amp;h=636&amp;f=png&amp;s=49153"><figcaption></figcaption></figure><p></p>
+<h2 class="heading">resource.Resource</h2>
+<p><code>resource.Resource</code> 是 Home 和 Jobs 的父类，它的代码是怎样的？</p>
+<p>在 PyCharm 中，通过 <code>Ctrl/Commond+鼠标左键</code> 可以跟进代码。我们跟进 Resource，代码如下：</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-meta">@implementer(IResource)</span>
+<span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">Resource</span>:</span>
+    entityType = IResource
+
+    server = <span class="hljs-keyword">None</span>
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">__init__</span><span class="hljs-params">(self)</span>:</span>
+        <span class="hljs-string">"""
+        Initialize.
+        """</span>
+        self.children = {}
+
+    isLeaf = <span class="hljs-number">0</span>
+
+    <span class="hljs-comment">### Abstract Collection Interface</span>
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">listStaticNames</span><span class="hljs-params">(self)</span>:</span>
+        <span class="hljs-keyword">return</span> list(self.children.keys())
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">listStaticEntities</span><span class="hljs-params">(self)</span>:</span>
+        <span class="hljs-keyword">return</span> list(self.children.items())
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">listNames</span><span class="hljs-params">(self)</span>:</span>
+        <span class="hljs-keyword">return</span> list(self.listStaticNames()) + self.listDynamicNames()
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">listEntities</span><span class="hljs-params">(self)</span>:</span>
+        <span class="hljs-keyword">return</span> list(self.listStaticEntities()) + self.listDynamicEntities()
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">listDynamicNames</span><span class="hljs-params">(self)</span>:</span>
+        <span class="hljs-keyword">return</span> []
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">listDynamicEntities</span><span class="hljs-params">(self, request=None)</span>:</span>
+        <span class="hljs-keyword">return</span> []
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">getStaticEntity</span><span class="hljs-params">(self, name)</span>:</span>
+        <span class="hljs-keyword">return</span> self.children.get(name)
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">getDynamicEntity</span><span class="hljs-params">(self, name, request)</span>:</span>
+        <span class="hljs-keyword">if</span> name <span class="hljs-keyword">not</span> <span class="hljs-keyword">in</span> self.children:
+            <span class="hljs-keyword">return</span> self.getChild(name, request)
+        <span class="hljs-keyword">else</span>:
+            <span class="hljs-keyword">return</span> <span class="hljs-keyword">None</span>
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">delEntity</span><span class="hljs-params">(self, name)</span>:</span>
+        <span class="hljs-keyword">del</span> self.children[name]
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">reallyPutEntity</span><span class="hljs-params">(self, name, entity)</span>:</span>
+        self.children[name] = entity
+
+    <span class="hljs-comment"># Concrete HTTP interface</span>
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">getChild</span><span class="hljs-params">(self, path, request)</span>:</span>
+        
+        <span class="hljs-keyword">return</span> NoResource(<span class="hljs-string">"No such child resource."</span>)
+
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">getChildWithDefault</span><span class="hljs-params">(self, path, request)</span>:</span>
+        
+        <span class="hljs-keyword">if</span> path <span class="hljs-keyword">in</span> self.children:
+            <span class="hljs-keyword">return</span> self.children[path]
+        <span class="hljs-keyword">return</span> self.getChild(path, request)
+
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">getChildForRequest</span><span class="hljs-params">(self, request)</span>:</span>
+        warnings.warn(<span class="hljs-string">"Please use module level getChildForRequest."</span>, DeprecationWarning, <span class="hljs-number">2</span>)
+        <span class="hljs-keyword">return</span> getChildForRequest(self, request)
+
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">putChild</span><span class="hljs-params">(self, path, child)</span>:</span>
+       
+        self.children[path] = child
+        child.server = self.server
+
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">render</span><span class="hljs-params">(self, request)</span>:</span>
+        
+        m = getattr(self, <span class="hljs-string">'render_'</span> + nativeString(request.method), <span class="hljs-keyword">None</span>)
+        <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> m:
+            <span class="hljs-keyword">try</span>:
+                allowedMethods = self.allowedMethods
+            <span class="hljs-keyword">except</span> AttributeError:
+                allowedMethods = _computeAllowedMethods(self)
+            <span class="hljs-keyword">raise</span> UnsupportedMethod(allowedMethods)
+        <span class="hljs-keyword">return</span> m(request)
+
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">render_HEAD</span><span class="hljs-params">(self, request)</span>:</span>
+       
+        <span class="hljs-keyword">return</span> self.render_GET(request)
+
+</code></pre><p>其中我们需要关注的方法有以下几个：</p>
+<pre><code>* putchild - twisted 语法，通过此方法设置路由。
+* render - 负责页面渲染。
+* render_HEAD - 将请求转发给 `render_GET`
+</code></pre>
+<h2 class="heading">JSON 视图</h2>
+<p>Scrapyd 提供了很多 API，通过 API 的返回信息能够知晓爬虫的运行状态或结果等信息，<code>webservice.py</code>中视图类与父类的继承关系 UML 类图如下：</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/10/11/166624a8cbea02e1?w=1006&amp;h=1233&amp;f=png&amp;s=70516"><figcaption></figcaption></figure><p></p>
+<p>以下是各个类的大致功能释义：</p>
+<pre><code>* WsResource - 继承自 JsonResource，是大多数 API 的父类，它默认返回 json 数据。
+* DaemonStatus - 对应 API 中的daemonstatus.json，用以检查 Scrapyd 服务的爬虫状态及对应数量。
+* Schedule - 对应 API 中的 schedule.json，用以启动指定的爬虫。
+* Cancel - 对应 API 中的 cancel.json，用以取消指定的爬虫。
+* AddVersion - 对应 API 中的 addversion.json，用以为项目添加版本，如果项目不存在则创建项目。
+* ListProjects - 对应 API 中的 listprojects.json，用以查看当前已部署的项目名称。
+* ListVersions - 对应 API 中的 listversions.json，用以查看指定项目的版本号。
+* ListSpiders - 对应 API 中的 listspiders.json，用以查看指定项目的爬虫名称。
+* ListJobs - 对应 API 中的 listjobs.json，用以查看指定项目下爬虫的运行状态。
+* DeleteProject - 对应 API 中的 delversion.json，用以删除指定项目的指定版本，版本不存在则删除项目。
+* DeleteVersion - 对应 API 中的 delproject.json，用以删除指定项目及其已上传的所有版本。
+</code></pre>
+<p>以及对应的<strong>类组织结构图</strong>：</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/10/17/1667fca8a2762855?w=1673&amp;h=620&amp;f=png&amp;s=27687"><figcaption></figcaption></figure>
+可以看到，大多数 API 类继承的是<code>WsResource</code>，并且通过重写 render 方法将数据渲染。<p></p>
+<p>在 PyCharm 中，通过<code>Ctrl/Commond+鼠标左键</code>可以跟进代码，我们跟进<code>WsResource</code>：</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/10/11/166622e6d4e9e001?w=1337&amp;h=831&amp;f=gif&amp;s=226490"><figcaption></figcaption></figure><p></p>
+<p>代码如下：</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">WsResource</span><span class="hljs-params">(JsonResource)</span>:</span>
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">__init__</span><span class="hljs-params">(self, root)</span>:</span>
+        JsonResource.__init__(self)
+        self.root = root
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">render</span><span class="hljs-params">(self, txrequest)</span>:</span>
+        <span class="hljs-keyword">try</span>:
+            <span class="hljs-keyword">return</span> JsonResource.render(self, txrequest).encode(<span class="hljs-string">'utf-8'</span>)
+        <span class="hljs-keyword">except</span> Exception <span class="hljs-keyword">as</span> e:
+            <span class="hljs-keyword">if</span> self.root.debug:
+                <span class="hljs-keyword">return</span> traceback.format_exc().encode(<span class="hljs-string">'utf-8'</span>)
+            log.err()
+            r = {<span class="hljs-string">"node_name"</span>: self.root.nodename, <span class="hljs-string">"status"</span>: <span class="hljs-string">"error"</span>, <span class="hljs-string">"message"</span>: str(e)}
+            <span class="hljs-keyword">return</span> self.render_object(r, txrequest).encode(<span class="hljs-string">'utf-8'</span>)
+</code></pre><p>它继承自<code>JsonResource</code>并且通过 JsonResource 的<code>render</code>返回<code>json</code> 格式数据，如果报错则返回报错信息，而跟进 <code>JsonResource</code> 发现它其实也是继承自<code>resource.Resource</code>类。所以这里可以得出几个结论：</p>
+<ul>
+<li>Resource 是 Scrapyd 中视图部分最底层的类，且其 render 默认返回 bytes 类型数据。</li>
+<li>JsonResource 以及 WsResource 都是通过重写 render 以实现返回 JSON 类型数据。</li>
+<li>或许可以通过自定义视图类，继承自 Resource，也通过重写 render 方法实现兼容 bytes 与 JSON 的视图类。</li>
+</ul>

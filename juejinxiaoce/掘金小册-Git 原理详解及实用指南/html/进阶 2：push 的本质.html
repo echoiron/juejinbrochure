@@ -1,0 +1,26 @@
+<h1 class="heading">进阶 2：push 的本质</h1>
+<p>在之前的内容里，我粗略地说过，<code>push</code> 指令做的事是把你的本地提交上传到中央仓库去，用本地的内容来覆盖掉远端的内容。这个说法其实是不够准确的，但 Git 的知识系统比较庞大，在你对 Git 了解比较少的时候，用「上传本地提交」来解释会比较好理解；而在你知道了 <code>branch</code>，并且明白了 <code>branch</code> 的具体含义以后，我就可以告诉你 <code>push</code> 到底是什么了。</p>
+<h2 class="heading">push：把 branch 上传到远端仓库</h2>
+<p>实质上，<code>push</code> 做的事是：把当前 <code>branch</code> 的位置（即它指向哪个 <code>commit</code>）上传到远端仓库，并把它的路径上的 <code>commit</code>s 一并上传。</p>
+<p>例如，我现在的本地仓库有一个 <code>master</code> ，它超前了远程仓库两个提交；另外还有一个新建的 <code>branch</code> 叫 <code>feature1</code>，远程仓库还没有记载过它。具体大概像这样：</p>
+<p></p><figure><img alt="本地仓库超前于远程仓库" src="https://user-gold-cdn.xitu.io/2017/11/29/160071880ab72f00?w=567&amp;h=825&amp;f=jpeg&amp;s=47425"><figcaption></figcaption></figure><p></p>
+<p>这时我执行 <code>git push</code>，就会把 <code>master</code> 的最新位置更新到远端，并且把它的路径上的 <code>5</code> <code>6</code> 两个 <code>commit</code>s 上传：</p>
+<pre><code class="hljs shell" lang="shell">git push
+</code></pre><p></p><figure><img alt="把 master push 到远程仓库" src="https://user-gold-cdn.xitu.io/2017/11/29/1600725e9973f71d?w=604&amp;h=816&amp;f=gif&amp;s=205017"><figcaption></figcaption></figure><p></p>
+<p>而如果这时候我再切到 <code>feature1</code> 去后再执行一次 <code>push</code>，就会把 <code>feature1</code> 以及它的 <code>commit</code> <code>4</code> 上传到远程仓库：</p>
+<pre><code class="hljs shell" lang="shell">git checkout feature1
+git push origin feature1
+</code></pre><blockquote>
+<p>这里的 <code>git push</code> 和之前有点不同：多了 <code>origin feature1</code> 这两个参数。其中 <code>origin</code> 是远程仓库的别名，是你在 <code>git clone</code> 的时候 Git 自动帮你起的；<code>feature1</code> 是远程仓库中目标 <code>branch</code> 的名字。这两个参数合起来指定了你要 <code>push</code> 到的目标仓库和目标分支，意思是「我要 push 到 <code>origin</code> 这个仓库的 <code>feature1</code> 分支」。</p>
+<p>在 Git 中（2.0 及它之后的版本），默认情况下，你用不加参数的 <code>git push</code> 只能上传那些之前从远端 <code>clone</code> 下来或者 <code>pull</code> 下来的分支，而如果需要 <code>push</code> 你本地的自己创建的分支，则需要手动指定目标仓库和目标分支（并且目标分支的名称必须和本地分支完全相同），就像上面这样。</p>
+<p>你可以通过 <code>git config</code> 指令来设置 <code>push.default</code> 的值来改变 <code>push</code> 的行为逻辑，例如可以设置为「所有分支都可以用 <code>git push</code> 来直接 push，目标自动指向 <code>origin</code> 仓库的同名分支」（对应的 <code>push.default</code> 值：<code>current</code>），或者别的什么行为逻辑，你甚至可以设置为每次执行 <code>git push</code> 时就自动把所有本地分支全部同步到远程仓库（虽然这可能有点耗时和危险）。如果希望详细了解，你可以到<a target="_blank" href="https://git-scm.com/docs/git-config#git-config-pushdefault">这里</a>看看。</p>
+</blockquote>
+<p></p><figure><img alt="push feature1 到远程仓库" src="https://user-gold-cdn.xitu.io/2017/11/29/160073ccda56ef07?w=588&amp;h=912&amp;f=gif&amp;s=216802"><figcaption></figcaption></figure><p></p>
+<p>细心的人可能会发现，在 <code>feature1</code> 被 <code>push</code> 时，远程仓库的 <code>HEAD</code> 并没有和本地仓库的 <code>HEAD</code> 一样指向 <code>feature1</code>。这是因为，<code>push</code> 的时候只会上传当前的 <code>branch</code> 的指向，并不会把本地的 <code>HEAD</code> 的指向也一起上传到远程仓库。事实上，远程仓库的 <code>HEAD</code> 是永远指向它的默认分支（即 master，如果不修改它的名称的话），并会随着默认分支的移动而移动的。</p>
+<h2 class="heading">小结</h2>
+<p>这一节介绍了 <code>push</code> 这个指令的本质。总结一下关键点：</p>
+<ol>
+<li><code>push</code> 是把当前的分支上传到远程仓库，并把这个 <code>branch</code> 的路径上的所有 <code>commit</code>s 也一并上传。</li>
+<li><code>push</code> 的时候，如果当前分支是一个本地创建的分支，需要指定远程仓库名和分支名，用 <code>git push origin branch_name</code> 的格式，而不能只用 <code>git push</code>；或者可以通过 <code>git config</code> 修改 <code>push.default</code> 来改变 <code>push</code> 时的行为逻辑。</li>
+<li><code>push</code> 的时候之后上传当前分支，并不会上传 <code>HEAD</code>；远程仓库的 <code>HEAD</code> 是永远指向默认分支（即 <code>master</code>）的。</li>
+</ol>

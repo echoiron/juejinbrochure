@@ -1,0 +1,112 @@
+<h1 class="heading">服务器 6：【PreForking异步】模型</h1>
+<p>单个进程的 IO 并发能力有限，虽然使用了事件轮询 API 和异步读写功能，但是还是不够应对大型服务的高并发要求。特别是 Python 这种语言因为 GIL 的存在使得单个进程只能榨干一个 CPU 核心。我们需要一种扩展机制可以扩大服务器的整体并发处理能力，好好利用现代处理器的多核优势，这就需要使用多进程。</p>
+<p>将 PreForking 机制和事件轮询异步读写结合起来，就能达成上面扩展的目标。PreForking 出来的每个子进程内部都是一个事件循环，一个进程可以榨干一个 CPU 核心，多个进程就可以榨干多个 CPU 核心。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/5/11/1634e13697d3b055?w=1033&amp;h=639&amp;f=png&amp;s=76598"><figcaption></figcaption></figure><p></p>
+<h2 class="heading">多进程 PreForking 异步模型</h2>
+<p>代码实现和前面的单进程异步模型差别不大，就是多了个 prefork 调用。prefork 在服务器套接字启用监听队列之后进行，这样每个子进程都可以使用服务器套接字来获取新连接进行处理。</p>
+<pre><code class="hljs py" lang="py"><span class="hljs-comment"># coding: utf8</span>
+
+<span class="hljs-keyword">import</span> os
+<span class="hljs-keyword">import</span> json
+<span class="hljs-keyword">import</span> struct
+<span class="hljs-keyword">import</span> socket
+<span class="hljs-keyword">import</span> asyncore
+<span class="hljs-keyword">from</span> cStringIO <span class="hljs-keyword">import</span> StringIO
+
+
+<span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">RPCHandler</span><span class="hljs-params">(asyncore.dispatcher_with_send)</span>:</span>
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">__init__</span><span class="hljs-params">(self, sock, addr)</span>:</span>
+        asyncore.dispatcher_with_send.__init__(self, sock=sock)
+        self.addr = addr
+        self.handlers = {
+            <span class="hljs-string">"ping"</span>: self.ping
+        }
+        self.rbuf = StringIO()  <span class="hljs-comment"># 读缓冲</span>
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">handle_connect</span><span class="hljs-params">(self)</span>:</span>
+        <span class="hljs-keyword">print</span> self.addr, <span class="hljs-string">'comes'</span>
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">handle_close</span><span class="hljs-params">(self)</span>:</span>
+        <span class="hljs-keyword">print</span> self.addr, <span class="hljs-string">'bye'</span>
+        self.close()
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">handle_read</span><span class="hljs-params">(self)</span>:</span>
+        <span class="hljs-keyword">while</span> <span class="hljs-keyword">True</span>:
+            content = self.recv(<span class="hljs-number">1024</span>)
+            <span class="hljs-keyword">if</span> content:
+                self.rbuf.write(content)  <span class="hljs-comment"># 追加到读缓冲</span>
+            <span class="hljs-keyword">if</span> len(content) &lt; <span class="hljs-number">1024</span>:  <span class="hljs-comment"># 说明内核缓冲区空了，等待下个事件循环再继续读吧</span>
+                <span class="hljs-keyword">break</span>
+        self.handle_rpc()  <span class="hljs-comment"># 处理新读到的消息</span>
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">handle_rpc</span><span class="hljs-params">(self)</span>:</span>
+        <span class="hljs-keyword">while</span> <span class="hljs-keyword">True</span>:
+            self.rbuf.seek(<span class="hljs-number">0</span>)
+            length_prefix = self.rbuf.read(<span class="hljs-number">4</span>)
+            <span class="hljs-keyword">if</span> len(length_prefix) &lt; <span class="hljs-number">4</span>:  <span class="hljs-comment"># 半包</span>
+                <span class="hljs-keyword">break</span>
+            length, = struct.unpack(<span class="hljs-string">"I"</span>, length_prefix)
+            body = self.rbuf.read(length)
+            <span class="hljs-keyword">if</span> len(body) &lt; length:  <span class="hljs-comment"># 还是半包</span>
+                <span class="hljs-keyword">break</span>
+            request = json.loads(body)
+            in_ = request[<span class="hljs-string">'in'</span>]
+            params = request[<span class="hljs-string">'params'</span>]
+            <span class="hljs-keyword">print</span> os.getpid(), in_, params
+            handler = self.handlers[in_]
+            handler(params) <span class="hljs-comment"># 处理 RPC</span>
+            left = self.rbuf.getvalue()[length + <span class="hljs-number">4</span>:]  <span class="hljs-comment"># 截断读缓冲</span>
+            self.rbuf = StringIO()
+            self.rbuf.write(left)
+        self.rbuf.seek(<span class="hljs-number">0</span>, <span class="hljs-number">2</span>)  <span class="hljs-comment"># 移动游标到缓冲区末尾，便于后续内容直接追加</span>
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">ping</span><span class="hljs-params">(self, params)</span>:</span>
+        self.send_result(<span class="hljs-string">"pong"</span>, params)
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">send_result</span><span class="hljs-params">(self, out, result)</span>:</span>
+        response = {<span class="hljs-string">"out"</span>: out, <span class="hljs-string">"result"</span>: result}
+        body = json.dumps(response)
+        length_prefix = struct.pack(<span class="hljs-string">"I"</span>, len(body))
+        self.send(length_prefix)
+        self.send(body)
+
+
+<span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">RPCServer</span><span class="hljs-params">(asyncore.dispatcher)</span>:</span>
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">__init__</span><span class="hljs-params">(self, host, port)</span>:</span>
+        asyncore.dispatcher.__init__(self)
+        self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.set_reuse_addr()
+        self.bind((host, port))
+        self.listen(<span class="hljs-number">1</span>)
+        self.prefork(<span class="hljs-number">10</span>)  <span class="hljs-comment"># 开辟 10 个子进程</span>
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">prefork</span><span class="hljs-params">(self, n)</span>:</span>
+        <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> range(n):
+            pid = os.fork()
+            <span class="hljs-keyword">if</span> pid &lt; <span class="hljs-number">0</span>:  <span class="hljs-comment"># fork error</span>
+                <span class="hljs-keyword">return</span>
+            <span class="hljs-keyword">if</span> pid &gt; <span class="hljs-number">0</span>:  <span class="hljs-comment"># parent process</span>
+                <span class="hljs-keyword">continue</span>
+            <span class="hljs-keyword">if</span> pid == <span class="hljs-number">0</span>:
+                <span class="hljs-keyword">break</span>  <span class="hljs-comment"># child process</span>
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">handle_accept</span><span class="hljs-params">(self)</span>:</span>
+        pair = self.accept()  <span class="hljs-comment"># 获取一个连接</span>
+        <span class="hljs-keyword">if</span> pair <span class="hljs-keyword">is</span> <span class="hljs-keyword">not</span> <span class="hljs-keyword">None</span>:
+            sock, addr = pair
+            RPCHandler(sock, addr)  <span class="hljs-comment"># 处理连接</span>
+
+
+<span class="hljs-keyword">if</span> __name__ == <span class="hljs-string">'__main__'</span>:
+    RPCServer(<span class="hljs-string">"localhost"</span>, <span class="hljs-number">8080</span>)
+    asyncore.loop()
+</code></pre><p>开源框架 Tornado 和开源代理服务器 Nginx 正是采用了多进程 PreForking 异步模型达到了业界啧啧称奇的高并发的处理能力。</p>
+<h2 class="heading">同步模型 vs 异步模型</h2>
+<p>同步和异步的差别就好比卡车和摩托车一样，如果遇到了交通堵塞，卡车只能继续等待堵塞缓解才可以继续前进。但是摩托车不一样，它可以切换到其它小路不停地往前开。</p>
+<h2 class="heading">小结</h2>
+<p>写到这里时，老师感觉自己的知识就要快被你们吸干了。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/5/19/16376cfc8de560c2?w=225&amp;h=225&amp;f=jpeg&amp;s=5484"><figcaption></figcaption></figure><p></p>
+<p>我本来打算还留一点给自己续命，但是好人做到底，我决定把这条老命全部豁出去了。</p>
+<p>下一节我们正式开讲分布式系统构建知识。</p>

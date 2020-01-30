@@ -1,0 +1,214 @@
+<h1 class="heading">将用户信息写入 MySQL 数据库</h1>
+<p>上两小节已完成逻辑代码，这小节将学习使用 ORM 的方式将用户注册信息写入数据库中。</p>
+<h2 class="heading">整个逻辑架构图</h2>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/17/162d43602b033d38?w=769&amp;h=578&amp;f=png&amp;s=33871"><figcaption></figcaption></figure><p></p>
+<p>数据库的信息（如地址、端口、用户名和密码等）存放在 <code>base.py</code> 中，<code>model.py</code> 中定义了数据库表并从 <code>base.py</code> 中获取数据库信息。当 <code>main.py</code> 启动时，其将调用 <code>model.py</code> 初始化数据库。而 <code>users_views.py</code> 负责将客户端的请求数据写入数据库中，并返回注册成功信息。</p>
+<h2 class="heading">配置数据用户名和密码</h2>
+<p>用户名为 <code>root</code>，密码为 <code>pwd@demo</code>，
+在服务器端输入如下命令配置数据库。</p>
+<pre><code class="hljs shell" lang="shell">mysql -u root
+set password for 'root' @localhost = password('pwd@demo');
+</code></pre><p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/7/1629e761b234df07?w=1023&amp;h=423&amp;f=png&amp;s=46537"><figcaption></figcaption></figure><p></p>
+<h2 class="heading">创建数据库</h2>
+<p>在服务器端输入如下命令创建数据库。</p>
+<pre><code class="hljs shell" lang="shell">CREATE DATABASE demo CHARACTER SET 'utf8' COLLATE 'utf8_general_ci';
+</code></pre><p>创建完成后，使用 <code>show databases</code> 检查数据库是否创建成功。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/7/1629e764100fcc65?w=984&amp;h=326&amp;f=png&amp;s=22404"><figcaption></figcaption></figure><p></p>
+<h2 class="heading">代码中配置数据库</h2>
+<p>在配置文件 <code>base.py</code> 中指定数据库，需修改 <code>conf/base.py</code>，增加如下代码：</p>
+<pre><code class="hljs python" lang="python"><span class="hljs-keyword">from</span> sqlalchemy <span class="hljs-keyword">import</span> create_engine
+<span class="hljs-keyword">from</span> sqlalchemy.ext.declarative <span class="hljs-keyword">import</span> declarative_base
+engine = create_engine(<span class="hljs-string">'mysql://root:pwd@demo@localhost:3306/demo?charset=utf8'</span>, encoding=<span class="hljs-string">"utf8"</span>, echo=<span class="hljs-keyword">False</span>)
+BaseDB = declarative_base()
+</code></pre><p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/22/162ea967a288b36f?w=827&amp;h=224&amp;f=png&amp;s=16085"><figcaption></figcaption></figure><p></p>
+<h2 class="heading">代码中定义数据库表</h2>
+<p>在前面的介绍中，我们提到，<code>models.py</code> 这个文件主要包含数据库表的定义及初始化。从第 6 小节中看到，用户注册信息包含手机号、密码和验证码。这里需要记录在数据库中的有手机号（<code>phone</code>）和密码（<code>password</code>），当然还包括创建的时间（<code>createTime</code>）。这些信息作为数据库表项，在 <code>models.py</code> 中定义，在 <code>models.py</code> 文件中输入如下代码：</p>
+<pre><code class="hljs python" lang="python"><span class="hljs-comment">#! /usr/bin/python3</span>
+<span class="hljs-comment"># -*- coding:utf-8 -*-</span>
+
+<span class="hljs-keyword">from</span> conf.base <span class="hljs-keyword">import</span> BaseDB, engine
+<span class="hljs-keyword">import</span> sys
+<span class="hljs-keyword">from</span> sqlalchemy <span class="hljs-keyword">import</span> (
+Column, 
+Integer,
+    String, 
+    DateTime
+)
+
+    
+<span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">Users</span><span class="hljs-params">(BaseDB)</span>:</span>
+    <span class="hljs-string">"""table for users
+    """</span>
+    __tablename__ = <span class="hljs-string">"users"</span>
+    <span class="hljs-comment">#定义表结构，包括id，phone，password，createTime</span>
+    id = Column(Integer, primary_key=<span class="hljs-keyword">True</span>)
+    phone = Column(String(<span class="hljs-number">50</span>), nullable=<span class="hljs-keyword">False</span>)
+    password = Column(String(<span class="hljs-number">50</span>), nullable=<span class="hljs-keyword">True</span>)
+    createTime = Column(DateTime, nullable=<span class="hljs-keyword">True</span>)
+    
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">__init__</span><span class="hljs-params">(self, phone, password, createTime)</span>:</span>
+        self.phone = phone
+        self.password = password
+        self.createTime = createTime
+    
+    
+<span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">initdb</span><span class="hljs-params">()</span>:</span>
+    BaseDB.metadata.create_all(engine)
+    
+<span class="hljs-keyword">if</span> __name__ == <span class="hljs-string">'__main__'</span>:
+    <span class="hljs-keyword">print</span> (<span class="hljs-string">"Initialize database"</span>)
+    initdb()
+</code></pre><h2 class="heading">代码中初始化数据库</h2>
+<p>在 <code>main.py</code> 中，调用 <code>models.py</code> 初始化数据库并启用数据库</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/22/162ea9ceea5f9845?w=705&amp;h=672&amp;f=png&amp;s=52336"><figcaption></figcaption></figure>
+具体代码如下：<p></p>
+<pre><code class="hljs python" lang="python"><span class="hljs-comment">#! /usr/bin/python3</span>
+<span class="hljs-comment"># -*- coding:utf-8 -*-</span>
+<span class="hljs-comment"># Author: demo</span>
+<span class="hljs-comment"># Email: demo@demo.com</span>
+<span class="hljs-comment"># Version: demo</span>
+
+<span class="hljs-keyword">import</span> tornado.ioloop
+<span class="hljs-keyword">import</span> tornado.web
+<span class="hljs-keyword">import</span> os
+<span class="hljs-keyword">import</span> sys
+<span class="hljs-keyword">from</span> tornado.options <span class="hljs-keyword">import</span> define, options
+<span class="hljs-keyword">from</span> common.url_router <span class="hljs-keyword">import</span> include, url_wrapper
+<span class="hljs-keyword">from</span> tornado.options <span class="hljs-keyword">import</span> define, options
+<span class="hljs-keyword">from</span> models <span class="hljs-keyword">import</span> initdb
+<span class="hljs-keyword">from</span> sqlalchemy.orm <span class="hljs-keyword">import</span> scoped_session, sessionmaker
+<span class="hljs-keyword">from</span> conf.base <span class="hljs-keyword">import</span> BaseDB, engine
+
+
+<span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">Application</span><span class="hljs-params">(tornado.web.Application)</span>:</span>
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">__init__</span><span class="hljs-params">(self)</span>:</span>
+        initdb()
+        handlers = url_wrapper([
+        (<span class="hljs-string">r"/users/"</span>, include(<span class="hljs-string">'views.users.users_urls'</span>))
+        ])
+        <span class="hljs-comment">#定义tornado服务器的配置项，如static/templates目录位置，debug级别等</span>
+        settings = dict(
+            debug=<span class="hljs-keyword">True</span>,
+            static_path=os.path.join(os.path.dirname(__file__), <span class="hljs-string">"static"</span>),
+            template_path=os.path.join(os.path.dirname(__file__), <span class="hljs-string">"templates"</span>)
+        )
+        tornado.web.Application.__init__(self, handlers, **settings)
+        self.db = scoped_session(sessionmaker(bind=engine,
+                                  autocommit=<span class="hljs-keyword">False</span>, autoflush=<span class="hljs-keyword">True</span>,
+                                  expire_on_commit=<span class="hljs-keyword">False</span>))
+ 
+ 
+<span class="hljs-keyword">if</span> __name__ == <span class="hljs-string">'__main__'</span>:
+    <span class="hljs-keyword">print</span> (<span class="hljs-string">"Tornado server is ready for service\r"</span>)
+    tornado.options.parse_command_line()
+    Application().listen(<span class="hljs-number">8000</span>, xheaders=<span class="hljs-keyword">True</span>)
+    tornado.ioloop.IOLoop.instance().start()
+</code></pre><h2 class="heading">代码将用户信息写入数据库</h2>
+<p>修改 <code>users_views.py</code>，将用户数据写入数据库中，修改内容包括从 <code>models</code> 中导入 <code>Users</code> 类表，并判断用户是否在数据库中。如果存在，返回注册失败信息；如果不存在，将用户信息写入数据库，并返回注册成功信息。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/22/162eaacef4db547f?w=555&amp;h=469&amp;f=png&amp;s=24382"><figcaption></figcaption></figure><p></p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/22/162eaad1013a7464?w=601&amp;h=680&amp;f=png&amp;s=53202"><figcaption></figcaption></figure><p></p>
+<p><code>users_views.py</code> 完整代码如下：</p>
+<pre><code class="hljs python" lang="python"><span class="hljs-comment">#! /usr/bin/python3</span>
+<span class="hljs-comment"># -*- coding:utf-8 -*-</span>
+
+<span class="hljs-keyword">import</span> tornado.web
+<span class="hljs-keyword">import</span> sys
+<span class="hljs-keyword">from</span> tornado.escape <span class="hljs-keyword">import</span> json_decode
+<span class="hljs-keyword">import</span> logging
+<span class="hljs-keyword">from</span> logging.handlers <span class="hljs-keyword">import</span> TimedRotatingFileHandler
+<span class="hljs-keyword">from</span> datetime <span class="hljs-keyword">import</span> datetime
+
+
+<span class="hljs-comment">#从commons中导入http_response方法</span>
+<span class="hljs-keyword">from</span> common.commons <span class="hljs-keyword">import</span> (
+    http_response,
+)
+
+<span class="hljs-comment">#从配置文件中导入错误码</span>
+<span class="hljs-keyword">from</span> conf.base <span class="hljs-keyword">import</span> (
+    ERROR_CODE,
+)
+
+<span class="hljs-keyword">from</span> models <span class="hljs-keyword">import</span> (
+    Users
+)
+  
+ 
+<span class="hljs-comment">########## Configure logging #############</span>
+logFilePath = <span class="hljs-string">"log/users/users.log"</span>
+logger = logging.getLogger(<span class="hljs-string">"Users"</span>)  
+logger.setLevel(logging.DEBUG)  
+handler = TimedRotatingFileHandler(logFilePath,  
+                                   when=<span class="hljs-string">"D"</span>,  
+                                   interval=<span class="hljs-number">1</span>,  
+                                   backupCount=<span class="hljs-number">30</span>)  
+formatter = logging.Formatter(<span class="hljs-string">'%(asctime)s \
+%(filename)s[line:%(lineno)d] %(levelname)s %(message)s'</span>,)  
+handler.suffix = <span class="hljs-string">"%Y%m%d"</span>
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+ 
+ 
+<span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">RegistHandle</span><span class="hljs-params">(tornado.web.RequestHandler)</span>:</span>
+    <span class="hljs-string">"""handle /user/regist request
+    :param phone: users sign up phone
+    :param password: users sign up password
+    :param code: users sign up code, must six digital code
+    """</span>
+    
+<span class="hljs-meta">    @property</span>
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">db</span><span class="hljs-params">(self)</span>:</span>
+        <span class="hljs-keyword">return</span> self.application.db
+        
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">post</span><span class="hljs-params">(self)</span>:</span>
+        <span class="hljs-keyword">try</span>:
+            <span class="hljs-comment">#获取入参</span>
+            args = json_decode(self.request.body)
+            phone = args[<span class="hljs-string">'phone'</span>]
+            password = args[<span class="hljs-string">'password'</span>]
+            verify_code = args[<span class="hljs-string">'code'</span>]
+        <span class="hljs-keyword">except</span>:
+            <span class="hljs-comment">#获取入参失败时，抛出错误码及错误信息</span>
+            logger.info(<span class="hljs-string">"RegistHandle: request argument incorrect"</span>)
+            http_response(self, ERROR_CODE[<span class="hljs-string">'1001'</span>], <span class="hljs-number">1001</span>)
+            <span class="hljs-keyword">return</span> 
+            
+        ex_user = self.db.query(Users).filter_by(phone=phone).first()
+        <span class="hljs-keyword">if</span> ex_user:
+            <span class="hljs-comment">#如果手机号已存在，返回用户已注册信息</span>
+            http_response(self, ERROR_CODE[<span class="hljs-string">'1002'</span>], <span class="hljs-number">1002</span>)
+            self.db.close()
+            <span class="hljs-keyword">return</span>
+        <span class="hljs-keyword">else</span>:
+            <span class="hljs-comment">#用户不存在，数据库表中插入用户信息</span>
+            logger.debug(<span class="hljs-string">"RegistHandle: insert db, user: %s"</span> %phone)
+            create_time = datetime.now().strftime(<span class="hljs-string">'%Y-%m-%d %H:%M:%S'</span>)
+            add_user = Users(phone, password, create_time)                         
+            self.db.add(add_user)
+            self.db.commit()
+            self.db.close()
+            <span class="hljs-comment">#处理成功后，返回成功码“0”及成功信息“ok”</span>
+            logger.debug(<span class="hljs-string">"RegistHandle: regist successfully"</span>)
+            http_response(self, ERROR_CODE[<span class="hljs-string">'0'</span>], <span class="hljs-number">0</span>)
+            
+</code></pre><h2 class="heading">增加错误码处理</h2>
+<p>修改 base.py，增加错误码 1002：</p>
+<pre><code class="hljs python" lang="python"><span class="hljs-string">"1002"</span>: <span class="hljs-string">"用户已注册，请直接登录"</span>,
+</code></pre><p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/22/162eaaee9fc4d2a5?w=857&amp;h=242&amp;f=png&amp;s=18751"><figcaption></figcaption></figure><p></p>
+<h2 class="heading">结果检查</h2>
+<p>上面的几大步骤，从配置数据库，到代码指定数据库，再到将用户信息写入数据库，我们已完成了数据库部分代码的编写，下面执行 <code>main.py</code> 文件，查看是否运行正常。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/7/1629e7716c1fbcc4?w=987&amp;h=123&amp;f=png&amp;s=15264"><figcaption></figcaption></figure><p></p>
+<h3 class="heading">HTTP 发包模拟器再次请求注册信息</h3>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/7/1629e773c3e1648d?w=806&amp;h=584&amp;f=png&amp;s=25959"><figcaption></figcaption></figure><p></p>
+<h3 class="heading">查看控制台</h3>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/7/1629e775c4e51c32?w=1016&amp;h=103&amp;f=png&amp;s=18891"><figcaption></figcaption></figure><p></p>
+<h3 class="heading">查看数据库</h3>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/7/1629e777a8c83dee?w=1025&amp;h=765&amp;f=png&amp;s=69867"><figcaption></figcaption></figure><p></p>
+<h3 class="heading">在 HTTP 发包模拟器上再次点击注册</h3>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/7/1629e779988d7341?w=779&amp;h=585&amp;f=png&amp;s=26334"><figcaption></figcaption></figure><p></p>
+<p>可以看到，服务器端返回的错误信息提示该用户已注册。</p>
+<h2 class="heading">代码下载</h2>
+<p>到目前为止，服务器端代码如下：<br>
+<a target="_blank" href="https://github.com/Jawish185/demo8.git">demo8</a></p>
+<h2 class="heading">小结</h2>
+<p>至此，我们已完成了数据库的写入，加上前两节的逻辑处理和 log 处理，客户端与服务器端的第一条消息请求交互已完成。这里只是使用到了 SQLAlchemy 很有限的功能，SQLAlchemy 具有很强大的功能，感兴趣的同学可以访问 <a target="_blank" href="http://docs.sqlalchemy.org/en/latest/">SQLAlchemy 官网</a>学习。</p>

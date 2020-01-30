@@ -1,0 +1,198 @@
+<h1 class="heading">服务器接收客户端图片上传，并保存在硬盘中</h1>
+<p>前面几小节，我们已完成了 JSON 格式的纯数据交互，在 App 服务器端的设计中，我们难免会接收客户端图片的上传，并提供端图片下载。本小节将讲解，对于客户端向服务器端上传图片，服务器端将如何处理。简单交互过程如下。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/10/162b016baced81f9?w=706&amp;h=198&amp;f=png&amp;s=24562"><figcaption></figcaption></figure><p></p>
+<p>同样，在这一小节中，我们也使用工具来代替 App 客户端模拟图片的上传。我们将要用到的工具是 JMeter，它是一个强大的工具，最为熟知的是 HTTP 的测试。这里我们不去深入了解 JMeter，而只是取其一个小功能 —— HTTP POST 图片的功能来完成讲解，读者如果感兴趣，可以自行学习拓展。</p>
+<h2 class="heading">下载 JMeter</h2>
+<p>通过官网下载 JMeter：<a target="_blank" href="http://jmeter.apache.org/download_jmeter.cgi">Download Apache JMeter</a></p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/10/162b016f2582b9d1?w=1048&amp;h=681&amp;f=png&amp;s=139458"><figcaption></figcaption></figure><p></p>
+<h2 class="heading">安装 JMeter</h2>
+<p>下载完成后，解压文件夹，进入 bin 目录，点击  <code>jmeter.bat</code> 进行 JMeter 的安装，安装成功后的界面如下。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/10/162b0172c6aa7e48?w=1515&amp;h=848&amp;f=png&amp;s=70006"><figcaption></figcaption></figure><p></p>
+<h2 class="heading">配置测试计划</h2>
+<h3 class="heading">切换语言</h3>
+<p>依次选择“Options” -&gt; “Choose Language” -&gt; “Chinese (Simplified)”，如下图所示。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/10/162b0175614cebde?w=742&amp;h=463&amp;f=png&amp;s=42771"><figcaption></figcaption></figure><p></p>
+<h3 class="heading">配置 HTTP 请求</h3>
+<p>右击 “Test Plan”，点击“添加” -&gt; “Threads (Users)”  -&gt; “线程组”</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/10/162b017d5d4ed6e9?w=586&amp;h=277&amp;f=png&amp;s=29665"><figcaption></figcaption></figure><p></p>
+<p>右击 “线程组”，点击 “添加” -&gt; “Sampler” -&gt; “HTTP 请求”</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/10/162b017fce1d6291?w=611&amp;h=344&amp;f=png&amp;s=37222"><figcaption></figcaption></figure><p></p>
+<p>在弹出的「HTTP 请求」框中进行如下设置：</p>
+<ul>
+<li>第 1~4 步，按照截图输入或选择；</li>
+<li>第 5 步，设定我们要上传图片（文件）的 URL 路径是 <code>upload/file</code>；</li>
+<li>第 6 步，选择 “Files Upload”；</li>
+<li>第 7 步，点击 ”添加”；</li>
+<li>第 8 步，点击 “浏览”，从本地随便选取一张图片（或本小节末尾提供的图片）；</li>
+<li>第 9 步，输入该图片对象的参数名 <code>image</code>；</li>
+<li>第 10 步，输入我们上传的文件类型 <code>image</code>。</li>
+</ul>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/10/162b0182eb3d2e1b?w=994&amp;h=735&amp;f=png&amp;s=38839"><figcaption></figcaption></figure><p></p>
+<p>至此，请求页面已配置完毕，点击 “文件” -&gt; “保存测试计划” 如下。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/10/162b01853ef37a86?w=435&amp;h=256&amp;f=png&amp;s=19368"><figcaption></figcaption></figure><p></p>
+<h2 class="heading">测试请求</h2>
+<p>点击如下 “启动” 按钮，测试是否请求成功</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/10/162b0188040102af?w=656&amp;h=396&amp;f=png&amp;s=32936"><figcaption></figcaption></figure><p></p>
+<h3 class="heading">查看服务器端</h3>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/10/162b018b29ac28c2?w=994&amp;h=167&amp;f=png&amp;s=20565"><figcaption></figcaption></figure><p></p>
+<p>此打印说明服务器端接收客户端请求成功，但由于 <code>/upload/file</code> 路径的代码未实现，服务器端返回 404 找不到路径。接下来，将进行服务器端图片上传代码编写。</p>
+<h2 class="heading">服务器端代码编写</h2>
+<h3 class="heading">调用逻辑</h3>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/17/162d43e54cccf2e6?w=692&amp;h=569&amp;f=png&amp;s=27412"><figcaption></figcaption></figure><p></p>
+<p>与第 6 小节用户注册请求服务器端实现类似，客户端上传图片，进入 <code>main.py</code>，将调用 <code>url_router</code> 转发到 <code>upload_url.py</code> 中，在 <code>upload_urls.py</code> 中，对应的 URL 将调用 <code>upload_views.py</code> 的 <code>UploadFileHandle</code> 类，<code>UploadFileHandle</code> 为真正的代码处理逻辑，在校验用户信息正确的情况下，返回图片 URL 给客户端，客户端加载该图片。</p>
+<h3 class="heading">创建目录</h3>
+<p>在 views 下面创建 upload 目录，在 upload 下创建 <code>upload_urls.py</code>、<code>upload_views.py</code>等文件。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/26/163019a3f15879f9?w=477&amp;h=194&amp;f=png&amp;s=11522"><figcaption></figcaption></figure><p></p>
+<p>在 log 目录下创建 upload 目录，用于存放日志。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/10/162b018ff477d6fe?w=770&amp;h=169&amp;f=png&amp;s=18322"><figcaption></figcaption></figure><p></p>
+<p>图片一般会放在 static 目录下，在实际项目中，static 下的图片目录也是分层级的，此次讲解，我们将简化，把图片直接放在 <code>static/image</code> 目录下。创建 image 目录如下：</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/10/162b0194ac9e4f25?w=898&amp;h=162&amp;f=png&amp;s=19749"><figcaption></figcaption></figure><p></p>
+<h3 class="heading">编写逻辑代码</h3>
+<p>修改 <code>main.py</code> 文件，增加 <code>views.upload.upload_urls</code>下的 url 路由，修改 <code>handers</code> 如下：</p>
+<pre><code class="hljs python" lang="python">        handlers = url_wrapper([
+        (<span class="hljs-string">r"/users/"</span>, include(<span class="hljs-string">'views.users.users_urls'</span>)),
+        (<span class="hljs-string">r"/upload/"</span>, include(<span class="hljs-string">'views.upload.upload_urls'</span>))
+        ])
+</code></pre><p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/22/162eb057967dbeb7?w=667&amp;h=303&amp;f=png&amp;s=26303"><figcaption></figcaption></figure><p></p>
+<p>修改 <code>upload_urls.py</code>，输入如下代码：</p>
+<pre><code class="hljs python" lang="python"><span class="hljs-comment">#!/usr/bin/python3</span>
+<span class="hljs-comment"># -*- coding:utf-8 -*-</span>
+
+
+<span class="hljs-keyword">from</span> __future__ <span class="hljs-keyword">import</span> unicode_literals
+<span class="hljs-keyword">from</span> .upload_views <span class="hljs-keyword">import</span> (
+    UploadFileHandle
+)
+
+urls = [
+    <span class="hljs-comment">#从/upload/file过来的请求，将调用upload_views里面的UploadFileHandle类</span>
+    (<span class="hljs-string">r'file'</span>, UploadFileHandle)
+]
+</code></pre><p>修改 <code>upload_views.py</code>，输入如下代码：</p>
+<pre><code class="hljs python" lang="python"><span class="hljs-comment">#! /usr/bin/python3</span>
+<span class="hljs-comment"># -*- coding:utf-8 -*-</span>
+
+<span class="hljs-keyword">import</span> tornado.web
+<span class="hljs-keyword">import</span> os
+<span class="hljs-keyword">from</span> tornado.escape <span class="hljs-keyword">import</span> json_decode
+<span class="hljs-keyword">import</span> logging
+<span class="hljs-keyword">from</span> logging.handlers <span class="hljs-keyword">import</span> TimedRotatingFileHandler
+<span class="hljs-keyword">import</span> json
+
+
+<span class="hljs-comment">#从commons中导入http_response及save_files方法</span>
+<span class="hljs-keyword">from</span> common.commons <span class="hljs-keyword">import</span> (
+    http_response,
+    save_files
+)
+
+<span class="hljs-comment">#从配置文件中导入错误码</span>
+<span class="hljs-keyword">from</span> conf.base <span class="hljs-keyword">import</span> (
+    ERROR_CODE,
+    SERVER_HEADER
+)
+
+<span class="hljs-comment">########## Configure logging #############</span>
+logFilePath = <span class="hljs-string">"log/upload/upload.log"</span>
+logger = logging.getLogger(<span class="hljs-string">"Upload"</span>)  
+logger.setLevel(logging.DEBUG)  
+handler = TimedRotatingFileHandler(logFilePath,  
+                                   when=<span class="hljs-string">"D"</span>,  
+                                   interval=<span class="hljs-number">1</span>,  
+                                   backupCount=<span class="hljs-number">30</span>)  
+formatter = logging.Formatter(<span class="hljs-string">'%(asctime)s \
+%(filename)s[line:%(lineno)d] %(levelname)s %(message)s'</span>,)  
+handler.suffix = <span class="hljs-string">"%Y%m%d"</span>
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+ 
+ 
+<span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">UploadFileHandle</span><span class="hljs-params">(tornado.web.RequestHandler)</span>:</span>
+    <span class="hljs-string">"""handle /upload/file request, upload image and save it to static/image/
+    :param image: upload image
+    """</span>
+        
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">post</span><span class="hljs-params">(self)</span>:</span>
+        <span class="hljs-keyword">try</span>:
+            <span class="hljs-comment">#获取入参</span>
+            image_metas = self.request.files[<span class="hljs-string">'image'</span>]
+        <span class="hljs-keyword">except</span>:
+            <span class="hljs-comment">#获取入参失败时，抛出错误码及错误信息</span>
+            logger.info(<span class="hljs-string">"UploadFileHandle: request argument incorrect"</span>)
+            http_response(self, ERROR_CODE[<span class="hljs-string">'1001'</span>], <span class="hljs-number">1001</span>)
+            <span class="hljs-keyword">return</span> 
+            
+        image_url = <span class="hljs-string">""</span>
+        image_path_list = []
+        <span class="hljs-keyword">if</span> image_metas:
+            <span class="hljs-comment">#获取当前的路径</span>
+            pwd = os.getcwd()
+            save_image_path = os.path.join(pwd, <span class="hljs-string">"static/image/"</span>)
+            logger.debug(<span class="hljs-string">"UploadFileHandle: save image path: %s"</span> %save_image_path)
+            <span class="hljs-comment">#调用save_file方法将图片数据流保存在硬盘中</span>
+            file_name_list = save_files(image_metas, save_image_path)
+            image_path_list = [SERVER_HEADER + <span class="hljs-string">"/static/image/"</span> + i <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> file_name_list]
+            ret_data = {<span class="hljs-string">"imageUrl"</span>: image_path_list}
+            <span class="hljs-comment">#返回图片下载地址给客户端</span>
+            self.write(json.dumps({<span class="hljs-string">"data"</span>: {<span class="hljs-string">"msg"</span>: ret_data, <span class="hljs-string">"code"</span>: <span class="hljs-number">0</span>}}))
+        <span class="hljs-keyword">else</span>:
+            <span class="hljs-comment">#如果图片为空，返回图片为空错误信息</span>
+            logger.info(<span class="hljs-string">"UploadFileHandle: image stream is empty"</span>)
+            http_response(self, ERROR_CODE[<span class="hljs-string">'2001'</span>], <span class="hljs-number">2001</span>)
+</code></pre><p>这里，我们从 <code>common</code> 导入 <code>save_files</code> 用于处理图片的保存，从 conf 的 <code>base</code> 中导入 <code>SERVER_HEADER</code>，定义了我们服务器的 URL 前缀。同时也看到，<code>upload</code> 和 <code>users</code> 的 Log 配置（如级别）是单独配置的，这样有助于单模块调试。下面修改 conf 目录下的 <code>base.py</code> 文件，增加如下：</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/22/162eaffe8896b51d?w=852&amp;h=309&amp;f=png&amp;s=24281"><figcaption></figcaption></figure>
+完整代码如下：<p></p>
+<pre><code class="hljs python" lang="python"><span class="hljs-comment">#! /usr/bin/python3</span>
+<span class="hljs-comment"># -*- coding:utf-8 -*-</span>
+
+<span class="hljs-keyword">from</span> sqlalchemy <span class="hljs-keyword">import</span> create_engine
+<span class="hljs-keyword">from</span> sqlalchemy.ext.declarative <span class="hljs-keyword">import</span> declarative_base
+engine = create_engine(<span class="hljs-string">'mysql://root:pwd@demo@localhost:3306/demo?charset=utf8'</span>, encoding=<span class="hljs-string">"utf8"</span>, echo=<span class="hljs-keyword">False</span>)
+BaseDB = declarative_base()
+
+<span class="hljs-comment">#服务器端 IP+Port，请修改对应的IP</span>
+SERVER_HEADER = <span class="hljs-string">"http://150.109.33.132:8000"</span>
+
+ERROR_CODE = {
+    <span class="hljs-string">"0"</span>: <span class="hljs-string">"ok"</span>,
+    <span class="hljs-comment">#Users error code</span>
+    <span class="hljs-string">"1001"</span>: <span class="hljs-string">"入参非法"</span>,
+    <span class="hljs-string">"1002"</span>: <span class="hljs-string">"用户已注册，请直接登录"</span>,
+    
+    <span class="hljs-string">"2001"</span>: <span class="hljs-string">"上传图片不能为空"</span>
+}
+</code></pre><p><code>commons.py</code> 下，导入 <code>os</code> 模块（ <code>import os</code> ），并增加 <code>save_files</code> 方法：</p>
+<pre><code class="hljs python" lang="python"><span class="hljs-keyword">import</span> os
+
+<span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">save_files</span><span class="hljs-params">(file_metas, in_rel_path, type=<span class="hljs-string">'image'</span>)</span>:</span>
+    <span class="hljs-string">"""
+    Save file stream to server
+    """</span>
+    file_path = <span class="hljs-string">""</span>
+    file_name_list = []
+    <span class="hljs-keyword">for</span> meta <span class="hljs-keyword">in</span> file_metas:
+        file_name = meta[<span class="hljs-string">'filename'</span>]
+        file_path = os.path.join( in_rel_path, file_name )
+        file_name_list.append( file_name )
+        <span class="hljs-comment">#save image as binary</span>
+        <span class="hljs-keyword">with</span> open( file_path, <span class="hljs-string">'wb'</span> ) <span class="hljs-keyword">as</span> up:
+            up.write( meta[<span class="hljs-string">'body'</span>] )
+    <span class="hljs-keyword">return</span> file_name_list
+</code></pre><p>至此，服务器端的代码已完成。再次从 JMeter 触发图片上传，在触发图片上传之前，我们先创建 JMeter 的结果树。所谓结果树，就是在触发请求之后，查看服务器端返回的结构。右击 “HTTP 请求”，依次选择“添加” -&gt; ”监听器” -&gt; “查看结果树”，如下图所示。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/10/162b01a2427e2341?w=799&amp;h=472&amp;f=png&amp;s=56335"><figcaption></figcaption></figure><p></p>
+<p>触发 JMeter 图片上传，点击 “察看结果树”，切到 “响应数据” 页面，可以看到服务器端返回的数据信息：</p>
+<pre><code class="hljs json" lang="json">{<span class="hljs-attr">"data"</span>: {<span class="hljs-attr">"msg"</span>: {<span class="hljs-attr">"imageUrl"</span>: [<span class="hljs-string">"http://150.109.33.132:8000/static/image/demo.jpg"</span>]}, <span class="hljs-attr">"code"</span>: <span class="hljs-number">0</span>}}
+</code></pre><p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/10/162b01a450869998?w=1156&amp;h=458&amp;f=png&amp;s=61558"><figcaption></figcaption></figure>
+查看服务器端进程打印：<p></p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/10/162b01a60d7352fd?w=1257&amp;h=161&amp;f=png&amp;s=21992"><figcaption></figcaption></figure>
+查看图片是否上传：<p></p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/10/162b01a7e78bd9fd?w=993&amp;h=179&amp;f=png&amp;s=18882"><figcaption></figcaption></figure>
+查看 log 是否成功写入：<p></p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/10/162b01a9d7cdfc23?w=1496&amp;h=161&amp;f=png&amp;s=29180"><figcaption></figcaption></figure><p></p>
+<p>此时，客户端就可以通过服务器端返回的图片 URL（<code>http://150.109.33.132:8000/static/image/demo.jpg</code>）加载图片了，在浏览器中输入图片 URL，查看加载是否成功。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/10/162b01ac3f15236a?w=1112&amp;h=669&amp;f=png&amp;s=965733"><figcaption></figcaption></figure><p></p>
+<h2 class="heading">代码下载</h2>
+<p>到目前为止，服务器端代码及图片如下：<br>
+<a target="_blank" href="https://github.com/Jawish185/demo9.git">demo9</a></p>
+<h2 class="heading">小结</h2>
+<p>至此，我们完成了服务器端图片上传的接收及图片 URL 返回，客户端根据服务器返回的图片 URL，即可加载该图片。这里没有写数据库的操作，读者可以尝试参考第 8 节的讲解，定义图片的 <code>models</code>，并将图片 URL 和其他信息写入数据库中。</p>

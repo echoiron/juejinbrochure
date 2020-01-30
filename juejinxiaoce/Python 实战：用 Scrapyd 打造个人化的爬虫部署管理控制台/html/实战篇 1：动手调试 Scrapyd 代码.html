@@ -1,0 +1,283 @@
+<h1 class="heading">动手调试 Scrapyd 代码</h1>
+<p>通过前面几个小节的学习，我们了解了 Scrapyd 的基础知识、Scrapyd 的使用、 <a target="_blank" href="https://juejin.im/book/5bb5d3fa6fb9a05d2a1d819a/section/5bb5ed2ff265da0aa06f08ac">Scrapyd 源码目录</a>及<a target="_blank" href="https://juejin.im/book/5bb5d3fa6fb9a05d2a1d819a/section/5bb7206f5188255c3f6beeb7">视图类</a>，逐步深入的领略了 Scrapyd 整个结构和编码风格。但是：</p>
+<pre><code class="hljs TEXT" lang="TEXT">1、如何才能够更深入的了解它的运行流程呢？
+2、爬虫的运行记录会存放在哪里呢？
+3、在原有的 Scrapyd 代码中，有哪些可以为我所用？
+4、它的 API 由哪些元素构成？
+5、我们可以改动现有函数或方法吗？
+6、... ...
+</code></pre><p>对于以上列出的问题，我们不得而知，但又不得不知。</p>
+<pre><code class="hljs TEXT" lang="TEXT">* 不得而知：因为之前的小节内容中，并未深入讲解 Scrapyd 的源码，仅停留在使用与结构上；
+* 不得不知：对于一个框架的学习，必须深入到代码中，通过对代码的调试才能够在脑海中绘制出框架的图谱；
+</code></pre><p>所以，在这里我将会用代码调试的方式，跟大家一起深入的了解 Scrapyd，看一看爬虫运行记录存放位置，筛选可以为我所用的 Scrapyd 代码。拆解它的 API，看一看 API 由哪些元素构成，试一试能不能改动现有函数。</p>
+<p>只有这样，我们才能够在脑海中绘制出清晰的 Scrayd 图谱，为我们自己能够编写出与 Scrapyd 风格一致的代码夯实基础。</p>
+<blockquote>
+<p>为什么要风格一致？</p>
+</blockquote>
+<p>在框架代码的改动过程中，应尽量与原框架代码保持一致的风格，有助于后期代码管理和维护，同时也能够减少一些不易察觉的错误。</p>
+<h2 class="heading">Scrapyd 的代码调试</h2>
+<p>在调试之前，我们想一想：选择哪一部分的代码进行调试会比较好呢？</p>
+<p>根据之前小节对 Scrapyd 源码目录结构以及常用功能的学习，我认为选择启动文件、首页以及 API 中的<code>listspiders.json</code>进行调试，能够让我们在短时间内对 Scrapyd 有更深一层的理解。</p>
+<h3 class="heading">启动文件代码调试</h3>
+<h4 class="heading">scrapyd_run.py</h4>
+<p>启动文件位于<code>scrapyd/scripts</code>目录下，名为<code>scrapyd_run.py</code>，文件中代码不多：</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-comment">#!/usr/bin/env python</span>
+
+<span class="hljs-keyword">from</span> twisted.scripts.twistd <span class="hljs-keyword">import</span> run
+<span class="hljs-keyword">from</span> os.path <span class="hljs-keyword">import</span> join, dirname
+<span class="hljs-keyword">from</span> sys <span class="hljs-keyword">import</span> argv
+<span class="hljs-keyword">import</span> scrapyd
+
+
+<span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">main</span><span class="hljs-params">()</span>:</span>
+    argv[<span class="hljs-number">1</span>:<span class="hljs-number">1</span>] = [<span class="hljs-string">'-n'</span>, <span class="hljs-string">'-y'</span>, join(dirname(scrapyd.__file__), <span class="hljs-string">'txapp.py'</span>)]
+    run()
+
+<span class="hljs-keyword">if</span> __name__ == <span class="hljs-string">'__main__'</span>:
+    main()
+</code></pre><h4 class="heading">Import 代码释义</h4>
+<p>Python 的代码自上而下执行，那就让我们从 Imoprt 开始：</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-keyword">from</span> twisted.scripts.twistd <span class="hljs-keyword">import</span> run   
+<span class="hljs-keyword">from</span> os.path <span class="hljs-keyword">import</span> join, dirname
+<span class="hljs-keyword">from</span> sys <span class="hljs-keyword">import</span> argv
+<span class="hljs-keyword">import</span> scrapyd
+</code></pre><p>导入这些包的作用是什么呢？</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-comment"># 先从 Scrapyd 的底层框架 Twisted 中导入用于启动 Twisted 的 Run 方法</span>
+<span class="hljs-comment"># 然后从 os.path 中导入用于操作文件路径的 join 和 dirname 方法</span>
+<span class="hljs-comment"># 再从 sys 中导入获取命令行参数的 argv 方法</span>
+<span class="hljs-comment"># 最后导入 Scrapyd 项目本身</span>
+</code></pre><h4 class="heading">main 函数与 argv</h4>
+<p>接着定义了<code>main</code>函数：</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">main</span><span class="hljs-params">()</span>:</span>
+    argv[<span class="hljs-number">1</span>:<span class="hljs-number">1</span>] = [<span class="hljs-string">'-n'</span>, <span class="hljs-string">'-y'</span>, join(dirname(scrapyd.__file__), <span class="hljs-string">'txapp.py'</span>)]
+    run()
+</code></pre><p>函数中的 argv 与其他参数到底有什么作用呢？我们可以通过 PyCharm 在 run() 打断点，让其运行到 run() 时暂停，这样我们就可以观察 argv 了，如下图所示：</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/10/11/16662d856b8acc24?w=1538&amp;h=998&amp;f=gif&amp;s=2808159"><figcaption></figcaption></figure><p></p>
+<p>Debug 后得到 argv 的值为：</p>
+<pre><code class="hljs Python" lang="Python"> [<span class="hljs-string">'/Volumes/HFSFILE/github/scrapyd/scrapyd/scripts/scrapyd_run.py'</span>, <span class="hljs-string">'-n'</span>, <span class="hljs-string">'-y'</span>, <span class="hljs-string">'/Volumes/HFSFILE/github/scrapyd/scrapyd/txapp.py'</span>]
+</code></pre><p>它是一个列表，列表的第一个元素是 <code>scrapyd_run.py</code> 的文件路径，也就是<code>argv</code>代码所获得的路径值，argv 会默认将当前文件路径添加到列表的第一个元素；列表最后一个元素是文件 <code>txapp.py</code> 的路径，也就是<code>join(dirname(scrapyd.__file__), 'txapp.py')</code>这部分代码获取到的值。那么，<code>-n</code>和<code>-y</code>到底是什么呢？</p>
+<p>为了更好的观察，这里将 argv 这一整行代码注释掉：</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">main</span><span class="hljs-params">()</span>:</span>
+    <span class="hljs-comment"># argv[1:1] = ['-n', '-y', join(dirname(scrapyd.__file__), 'txapp.py')]</span>
+    run()
+</code></pre><p>然后直接运行<code>scrapyd_run.py</code>文件。</p>
+<p>发现运行失败，并在 PyCharm 的运行记录框中给出了提示，如下图：</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/10/11/16662dba20cf559c?w=1540&amp;h=1002&amp;f=gif&amp;s=3478686"><figcaption></figcaption></figure><p></p>
+<p>提示中出现了<code>-n</code>和<code>-y</code>参数，它们的含义是什么？</p>
+<pre><code class="hljs HTML" lang="HTML">-n, --nodaemon don't daemonize, don't use default umask of 0077
+-y, --python=  read an application from within a Python file (implies -o)
+</code></pre><ul>
+<li>-n 代表不以守护进程模式启动</li>
+<li>-y 代表从 Python 文件中读取应用程序</li>
+</ul>
+<p>回头再来看看 argv 的作用，<a target="_blank" href="https://docs.python.org/3.6/library/sys.html?highlight=argv#sys.argv">Python 文档中对 argv 的介绍</a>如下：</p>
+<blockquote>
+<p>sys.argv</p>
+<p><code>The list of command line arguments passed to a Python script. argv[0] is the script name</code> (it is operating system dependent whether this is a full pathname or not). If the command was executed using the -c command line option to the interpreter, argv[0] is set to the string '-c'. If no script name was passed to the Python interpreter, argv[0] is the empty string.</p>
+</blockquote>
+<p>其中我对释义做了高亮，那段释义翻译成中文：</p>
+<blockquote>
+<p>传递给 Python script 的命令行参数列表，argv[0] 是 script 文件名</p>
+</blockquote>
+<p>这也解释了，为什么 argv[1:1] 列表的第一个元素是 scrapyd_run.py 的路径，其余的释义并不重要，在这里可以将其略过。</p>
+<h4 class="heading">txapp</h4>
+<p>那么，传递进来的 txapp.py 文件，又是做什么的呢？这是它的代码：</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-comment"># this file is used to start scrapyd with twistd -y</span>
+<span class="hljs-keyword">from</span> scrapyd <span class="hljs-keyword">import</span> get_application
+application = get_application()
+</code></pre><p>它从 Scrapyd 项目中导入<code>get_application</code>方法，通过<code>Ctrl/Commond+鼠标左键</code> 跟进<code>get_application</code>方法的代码：</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-keyword">from</span> scrapy.utils.misc <span class="hljs-keyword">import</span> load_object
+<span class="hljs-keyword">from</span> scrapyd.config <span class="hljs-keyword">import</span> Config
+
+
+<span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">get_application</span><span class="hljs-params">(config=None)</span>:</span>
+    <span class="hljs-keyword">if</span> config <span class="hljs-keyword">is</span> <span class="hljs-keyword">None</span>:
+        config = Config()
+    apppath = config.get(<span class="hljs-string">'application'</span>, <span class="hljs-string">'scrapyd.app.application'</span>)
+    appfunc = load_object(apppath)
+    <span class="hljs-keyword">return</span> appfunc(config)
+</code></pre><p>它的逻辑很简单：</p>
+<ul>
+<li>判断是否传入指定的 config。 如果有则使用指定的 config，如无则使用框架预先定义的<code>Config</code></li>
+<li>初始化<code>Config</code>并使用<code>get()与_getany()</code>，最终获得传入的字符串<code>'scrapyd.app.application'</code></li>
+<li>使用 <code>appfunc = load_object(apppath)</code>获得 mod 对象的 application 属性对象</li>
+<li>最后使用 <code>appfunc(config)</code> 将得到的<code>Componentized</code>对象返回给<code>txapp</code>中的<code>application</code> 变量</li>
+</ul>
+<blockquote>
+<p>至此，整个 Scrapyd 服务的启动就完成了。</p>
+</blockquote>
+<p>或许你还有疑问，为什么要返回<code>Componentized</code>对象给<code>application</code>变量呢?<code>run()</code>方法执行了什么呢？</p>
+<p>这里我们学习的是 Scrapyd，能够大致理解整个流程即可，对于十分细致的 Twisted 方法及函数还需翻阅 Twisted 文档。通过上面的代码跟进及调试，我们基本可以理清它们的顺序和关系：</p>
+<ul>
+<li>在启动之前，通过<code>scrapyd_run.py</code>的<code>argv</code>设置了基本参数：<code>-n</code>和<code>-y</code>参数。并且将<code>txapp</code>的<code>application</code>对象以参数的形式与<code>-n</code>和<code>-y</code>一并传递给了<code>twisted</code>(application 是固定的参数名)。</li>
+<li><code>run()</code>方法是以<code>argv</code>传递对应的参数作为启动配置的，<code>run()</code>执行时，就启动了整个项目。</li>
+</ul>
+<p>所以，整个 Scrapyd 服务由<code>run()</code>方法唤起，但是唤起前将<code>txapp.py</code>所获得的<code>Componentized</code>对象以及<code>-n</code>和<code>-y</code>参数传递给<code>twisted</code>。</p>
+<h2 class="heading">首页代码调试</h2>
+<p>首页相关的代码在<code>website.py</code>中的<code>Home</code>类中,其代码如下：</p>
+<pre><code class="hljs Python" lang="Python">
+<span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">Home</span><span class="hljs-params">(resource.Resource)</span>:</span>
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">__init__</span><span class="hljs-params">(self, root, local_items)</span>:</span>
+        resource.Resource.__init__(self)
+        self.root = root
+        self.local_items = local_items
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">render_GET</span><span class="hljs-params">(self, txrequest)</span>:</span>
+        vars = {
+            <span class="hljs-string">'projects'</span>: <span class="hljs-string">', '</span>.join(self.root.scheduler.list_projects())
+        }
+        s = <span class="hljs-string">"""
+            &lt;html&gt;
+            &lt;head&gt;&lt;title&gt;Scrapyd&lt;/title&gt;&lt;/head&gt;
+            &lt;body&gt;
+            &lt;h1&gt;Scrapyd&lt;/h1&gt;
+            &lt;p&gt;Available projects: &lt;b&gt;%(projects)s&lt;/b&gt;&lt;/p&gt;
+            &lt;ul&gt;
+            &lt;li&gt;&lt;a href="/jobs"&gt;Jobs&lt;/a&gt;&lt;/li&gt;
+            """</span> % vars
+                    <span class="hljs-keyword">if</span> self.local_items:
+                        s += <span class="hljs-string">'&lt;li&gt;&lt;a href="/items/"&gt;Items&lt;/a&gt;&lt;/li&gt;'</span>
+                    s += <span class="hljs-string">"""
+            &lt;li&gt;&lt;a href="/logs/"&gt;Logs&lt;/a&gt;&lt;/li&gt;
+            &lt;li&gt;&lt;a href="http://scrapyd.readthedocs.org/en/latest/"&gt;Documentation&lt;/a&gt;&lt;/li&gt;
+            &lt;/ul&gt;
+            
+            &lt;h2&gt;How to schedule a spider?&lt;/h2&gt;
+            
+            &lt;p&gt;To schedule a spider you need to use the API (this web UI is only for
+            monitoring)&lt;/p&gt;
+            
+            &lt;p&gt;Example using &lt;a href="http://curl.haxx.se/"&gt;curl&lt;/a&gt;:&lt;/p&gt;
+            &lt;p&gt;&lt;code&gt;curl http://localhost:6800/schedule.json -d project=default -d spider=somespider&lt;/code&gt;&lt;/p&gt;
+            
+            &lt;p&gt;For more information about the API, see the &lt;a href="http://scrapyd.readthedocs.org/en/latest/"&gt;Scrapyd documentation&lt;/a&gt;&lt;/p&gt;
+            &lt;/body&gt;
+            &lt;/html&gt;
+        """</span> % vars
+        <span class="hljs-keyword">return</span> s.encode(<span class="hljs-string">'utf-8'</span>)
+</code></pre><p>在 Web 页面中界面如下图所示：</p>
+<p></p><figure><img alt="web index" src="https://user-gold-cdn.xitu.io/2018/10/9/16657440a52d28a5?w=805&amp;h=341&amp;f=png&amp;s=29993"><figcaption></figcaption></figure><p></p>
+<h3 class="heading">render_GET</h3>
+<p>通过 Web 页面与 Home 类中的代码对比，不难发现数据的渲染都是在<code>render_GET</code>方法中，<code>render_GET</code>由以下三个部分组成：</p>
+<ul>
+<li>vars - 爬虫项目列表</li>
+<li>s - 嵌入爬虫项目列表 vars 的 html 文本</li>
+<li>return - 将文本数据编码后返回给 render 方法，最后呈现到页面</li>
+</ul>
+<p>那<code>render_GET</code>与<code>render</code>有什么关系？为什么它通过<code>return</code>就能够将页面呈现出来？这部分在 <a target="_blank" href="https://juejin.im/book/5bb5d3fa6fb9a05d2a1d819a/section/5bb7206f5188255c3f6beeb7">Scrapyd 视图类</a>已经做了讲解，这里就不再多提。</p>
+<h3 class="heading">爬虫项目的数据来源</h3>
+<p>上面提到，<code>vars</code>负责将爬虫项目列表取出，这部分的代码是：</p>
+<pre><code class="hljs Python" lang="Python">vars = {<span class="hljs-string">'projects'</span>: <span class="hljs-string">', '</span>.join(self.root.scheduler.list_projects())}
+</code></pre><p>真正负责取数据的是<code>self.root.scheduler.list_projects()</code>,我们将代码拆成<code>self.root.scheduler</code>与<code>self.root.scheduler.list_projects()</code>并对其进行调试，看看这段代码包含了哪些数据信息，先将 Home 中 <code>render_GET</code> 的代码改成（省略号代表下面的代码保持不变，此处省略）：</p>
+<pre><code class="hljs Python" lang="Python">    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">render_GET</span><span class="hljs-params">(self, txrequest)</span>:</span>
+        scheduler = self.root.scheduler
+        pro = scheduler.list_projects()
+        vars = {
+            <span class="hljs-string">'projects'</span>: <span class="hljs-string">', '</span>.join(self.root.scheduler.list_projects())
+        }
+        ... ...
+</code></pre><p>新增加了<code>scheduler</code>和<code>pro</code>，并在变量 <code>vars</code>处打断点，然后通过 PyCharm 的<code>debug</code>按钮运行<code>scrapyd_run.py</code>文件。待 Scrapyd 服务运行起来后，在浏览器访问<code>localhost:6800</code>，程序运行后就会暂停在断点 vars 处，如下图所示：</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/10/9/166575b9887eb330?w=1214&amp;h=720&amp;f=png&amp;s=234005"><figcaption></figcaption></figure><p></p>
+<h3 class="heading">Encode</h3>
+<p>在最后<code>return</code>的时候，需要对<code>html</code>文本进行编码转化,将原本的<code>str</code>转成<code>bytes</code>格式数据，也就是：</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-keyword">return</span> s.encode(<span class="hljs-string">'utf-8'</span>)
+</code></pre><p>如果直接将 <code>str</code> 返回的话，会得到<code>Request did not return bytes</code>的错误提示。</p>
+<h2 class="heading">API 代码调试</h2>
+<p>API 作为 Scrapyd 使用最广泛并且最灵活的部分，是 Scrapyd 的功能担当。假如没有这些 API，对于 Scrapyd 的使用者来说，在爬虫项目管理方面将变得困难。</p>
+<h3 class="heading">listspiders.json</h3>
+<p>Scrapyd 所有 API 对应的类都在 <code>webservice.py</code> 文件中，本次将 <code>listspiders.json</code> 作为调试的案例，其代码为：</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">ListSpiders</span><span class="hljs-params">(WsResource)</span>:</span>
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">render_GET</span><span class="hljs-params">(self, txrequest)</span>:</span>
+        args = native_stringify_dict(copy(txrequest.args), keys_only=<span class="hljs-keyword">False</span>)
+        project = args[<span class="hljs-string">'project'</span>][<span class="hljs-number">0</span>]
+        version = args.get(<span class="hljs-string">'_version'</span>, [<span class="hljs-string">''</span>])[<span class="hljs-number">0</span>]
+        spiders = get_spider_list(project, runner=self.root.runner, version=version)
+        <span class="hljs-keyword">return</span> {<span class="hljs-string">"node_name"</span>: self.root.nodename, <span class="hljs-string">"status"</span>: <span class="hljs-string">"ok"</span>, <span class="hljs-string">"spiders"</span>: spiders}
+</code></pre><p>我们来大致分析一下，这个类自上而下做了什么：</p>
+<ul>
+<li>首先，这个类继承自 WsResource</li>
+<li>其次，它同样是使用了 <code>render_GET</code> 来渲染数据</li>
+<li>通过 <code>native_stringify_dict</code> 方法获取请求时携带的参数</li>
+<li>根据传递的爬虫项目名称获取 project 对象以及版本 Version</li>
+<li>通过 <code>get_spider_list</code> 方法以及对应参数获取爬虫名称列表</li>
+<li>最后将爬虫列表结果以 json 格式返回</li>
+</ul>
+<p>从逻辑上可以看到，关键的地方就在于<code>args = native_stringify_dict(copy(txrequest.args), keys_only=False)</code>，需要在使用时传递指定的爬虫项目名称。</p>
+<p>如果不传递任何参数，则返回错误提示:
+<code>{"node_name": "GannicusdeiMac", "status": "error", "message": "'project'"}</code></p>
+<p>如果传递了错误的参数名或者不存在的项目名称，同样会得到错误提示。所以在 <a target="_blank" href="https://scrapyd.readthedocs.io/en/stable/api.html#listspiders-json">Scrapyd 文档中 API 示例部分</a>强调了必须传递参数：</p>
+<p></p><figure><img alt="doc" src="https://user-gold-cdn.xitu.io/2018/10/10/1665e3b2cdcdf5b2?w=791&amp;h=221&amp;f=png&amp;s=21569"><figcaption></figcaption></figure><p></p>
+<p>那传递的参数是以什么形式出现在代码中的呢？我们可以对其进行调试，在<code>args</code> 的下一行（也就是 project）处打断点，并且通过 PyCharm 的 Debug 按钮启动项目，然后在浏览器访问<code>http://localhost:6800?project=arts</code>,待代码运行到断点处就可以看到 args 所获的值为<code>{'project': ['arts']}</code>，是以字典的形式出现在代码中。</p>
+<p>所以下一句代码取参数中的 project 键中第 0个位置的值，以刚才的请求作为例子，就是取到<code>arts</code>这个名字。</p>
+<p>再往下，通过 <code>get_spider_list</code> 方法以及传递的项目名称（arts）获取爬虫的名称列表。</p>
+<p>当请求参数是正确的，并且项目名称也正确，就会得到带有爬虫名称的 json 数据：</p>
+<p><code>{"node_name": "GannicusdeiMac", "status": "ok", "spiders": ["artspider"]}</code></p>
+<p>那在 <code>get_spider_list</code> 方法中，又完成了哪些事呢？让我们通过 <code>Ctrl/Commond+鼠标左键</code> 跟进代码：</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">get_spider_list</span><span class="hljs-params">(project, runner=None, pythonpath=None, version=<span class="hljs-string">''</span>)</span>:</span>
+    <span class="hljs-string">"""Return the spider list from the given project, using the given runner"""</span>
+    <span class="hljs-keyword">if</span> <span class="hljs-string">"cache"</span> <span class="hljs-keyword">not</span> <span class="hljs-keyword">in</span> get_spider_list.__dict__:
+        get_spider_list.cache = UtilsCache()
+    <span class="hljs-keyword">try</span>:
+        <span class="hljs-keyword">return</span> get_spider_list.cache[project][version]
+    <span class="hljs-keyword">except</span> KeyError:
+        <span class="hljs-keyword">pass</span>
+    <span class="hljs-keyword">if</span> runner <span class="hljs-keyword">is</span> <span class="hljs-keyword">None</span>:
+        runner = Config().get(<span class="hljs-string">'runner'</span>)
+    env = os.environ.copy()
+    env[<span class="hljs-string">'PYTHONIOENCODING'</span>] = <span class="hljs-string">'UTF-8'</span>
+    env[<span class="hljs-string">'SCRAPY_PROJECT'</span>] = project
+    <span class="hljs-keyword">if</span> pythonpath:
+        env[<span class="hljs-string">'PYTHONPATH'</span>] = pythonpath
+    <span class="hljs-keyword">if</span> version:
+        env[<span class="hljs-string">'SCRAPY_EGG_VERSION'</span>] = version
+    pargs = [sys.executable, <span class="hljs-string">'-m'</span>, runner, <span class="hljs-string">'list'</span>]
+    proc = Popen(pargs, stdout=PIPE, stderr=PIPE, env=env)
+    out, err = proc.communicate()
+    <span class="hljs-keyword">if</span> proc.returncode:
+        msg = err <span class="hljs-keyword">or</span> out <span class="hljs-keyword">or</span> <span class="hljs-string">''</span>
+        msg = msg.decode(<span class="hljs-string">'utf8'</span>)
+        <span class="hljs-keyword">raise</span> RuntimeError(msg.encode(<span class="hljs-string">'unicode_escape'</span>) <span class="hljs-keyword">if</span> six.PY2 <span class="hljs-keyword">else</span> msg)
+    <span class="hljs-comment"># <span class="hljs-doctag">FIXME:</span> can we reliably decode as UTF-8?</span>
+    <span class="hljs-comment"># scrapy list does `print(list)`</span>
+    tmp = out.decode(<span class="hljs-string">'utf-8'</span>).splitlines();
+    <span class="hljs-keyword">try</span>:
+        project_cache = get_spider_list.cache[project]
+        project_cache[version] = tmp
+    <span class="hljs-keyword">except</span> KeyError:
+        project_cache = {version: tmp}
+    get_spider_list.cache[project] = project_cache
+    <span class="hljs-keyword">return</span> tmp
+</code></pre><p><strong>代码比较长，我们挑重点来理解：</strong></p>
+<ul>
+<li>首先，看方法的注释说明，大意是根据指定的爬虫名返回爬虫列表。</li>
+<li>优先从爬虫缓存列表中读取记录，如果有则直接返回结果。</li>
+<li>如无则尝试从数据库中读取。</li>
+<li>最后更新项目缓存并将结果返回。</li>
+</ul>
+<p>官方注释原文为：
+<code>Return the spider list from the given project, using the given runner</code></p>
+<p>优先从爬虫缓存列表中读取记录，如果有则直接返回结果：</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-keyword">return</span> get_spider_list.cache[project][version]
+</code></pre><p>尝试从数据库中读取代码为：</p>
+<pre><code class="hljs Python" lang="Python">env[<span class="hljs-string">'SCRAPY_PROJECT'</span>] = project
+pargs = [sys.executable, <span class="hljs-string">'-m'</span>, runner, <span class="hljs-string">'list'</span>]
+proc = Popen(pargs, stdout=PIPE, stderr=PIPE, env=env)
+out, err = proc.communicate()
+</code></pre><p>更新项目缓存并将结果返回代码为：</p>
+<pre><code class="hljs Python" lang="Python">tmp = out.decode(<span class="hljs-string">'utf-8'</span>).splitlines();
+    <span class="hljs-keyword">try</span>:
+        project_cache = get_spider_list.cache[project]
+        project_cache[version] = tmp
+    <span class="hljs-keyword">except</span> KeyError:
+        project_cache = {version: tmp}
+    get_spider_list.cache[project] = project_cache
+    <span class="hljs-keyword">return</span> tmp
+</code></pre><h2 class="heading">关于爬虫名称列表的获取速度</h2>
+<p>用<code>get_spider_list</code>方法获取爬虫名称的速度并不快，甚至可以说有点慢，所以它才会使用缓存来提升读取速度。方法中<code>out, err = proc.communicate()</code>这句代码的运行时长约为 1.3-2.5秒，笔者通过不断的实验发现，它里面调用的其他方法中使用了<code>while</code>以及<code>for 循环</code>，每个循环运行的时间并不长，但是多个循环的时间累加起来就变成了1.3-2.5秒。</p>
+<h2 class="heading">小结</h2>
+<p>本小节我们从需求与问题开始，再到代码调试的原因以及选择需要调试的几种不同类型的代码进行深入观察。在整个过程中了解到了 Scrapyd 的代码结构、代码运行流程、代码风格以及爬虫运行记录的存放处。<strong>由此得到一个启发：</strong></p>
+<blockquote>
+<p>对于后面的功能模块开发，我们可以从现有的代码中拿到部分资源，通过对资源的类型转换或者再次计算，得到我们需要的数据结果。</p>
+</blockquote>
+<p>比如可以通过观察<code>self.root</code>获取爬虫运行的相关信息、使用<code>get_spider_list</code>方法可以获得指定项目中的爬虫名列表、使用<code>native_stringify_dict</code>方法可以获得传递的参数键值对等等。</p>

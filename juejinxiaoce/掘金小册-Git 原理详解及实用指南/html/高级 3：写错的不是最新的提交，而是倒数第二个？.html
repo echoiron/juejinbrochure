@@ -1,0 +1,43 @@
+<h1 class="heading">高级 3：写错的不是最新的提交，而是倒数第二个？</h1><p><code>commit --amend</code> 可以修复最新 <code>commit</code> 的错误，但如果是倒数第二个 <code>commit</code> 写错了，怎么办？</p>
+<h2 class="heading">rebase -i：交互式 rebase</h2><p>如果不是最新的 <code>commit</code> 写错，就不能用 <code>commit --amend</code> 来修复了，而是要用 <code>rebase</code>。不过需要给 <code>rebase</code> 也加一个参数：<code>-i</code>。</p>
+<p><code>rebase -i</code> 是 <code>rebase --interactive</code> 的缩写形式，意为「交互式 rebase」。</p>
+<p>所谓「交互式 rebase」，就是在 <code>rebase</code> 的操作执行之前，你可以指定要 <code>rebase</code> 的 <code>commit</code> 链中的每一个 <code>commit</code> 是否需要进一步修改。</p>
+<p>那么你就可以利用这个特点，进行一次「原地 rebase」。</p>
+<p>例如你是在写错了 <code>commit</code> 之后，又提交了一次才发现之前写错了：</p>
+<pre><code class="hljs shell" lang="shell">git log</code></pre><p></p><figure><img alt="" src="https://user-gold-cdn.xitu.io/2017/11/22/15fdf5fd00a27f45?w=614&amp;h=290&amp;f=jpeg&amp;s=115583"><figcaption></figcaption></figure><p></p>
+<h3 class="heading">开启交互式 rebase 过程</h3><p>现在再用 <code>commit --amend</code> 已经晚了，但可以用 <code>rebase -i</code>：</p>
+<pre><code class="hljs shell" lang="shell">git rebase -i HEAD^^</code></pre><blockquote>
+<p>说明：在 Git 中，有两个「偏移符号」： <code>^</code> 和 <code>~</code>。</p>
+<p><code>^</code> 的用法：在 <code>commit</code> 的后面加一个或多个 <code>^</code> 号，可以把 <code>commit</code> 往回偏移，偏移的数量是 <code>^</code> 的数量。例如：<code>master^</code> 表示 <code>master</code> 指向的 <code>commit</code> 之前的那个 <code>commit</code>； <code>HEAD^^</code>  表示 <code>HEAD</code> 所指向的 <code>commit</code> 往前数两个 <code>commit</code>。</p>
+<p><code>~</code> 的用法：在 <code>commit</code> 的后面加上 <code>~</code> 号和一个数，可以把 <code>commit</code> 往回偏移，偏移的数量是 <code>~</code> 号后面的数。例如：<code>HEAD~5</code> 表示 <code>HEAD</code> 指向的 <code>commit</code>往前数 5 个 <code>commit</code>。</p>
+</blockquote>
+<p>上面这行代码表示，把当前 <code>commit</code> （ <code>HEAD</code> 所指向的 <code>commit</code>） <code>rebase</code> 到 <code>HEAD</code> 之前 2 个的 <code>commit</code> 上：</p>
+<p></p><figure><img alt="" src="https://user-gold-cdn.xitu.io/2017/11/22/15fdf5fd00522381?w=568&amp;h=352&amp;f=gif&amp;s=182502"><figcaption></figcaption></figure><p></p>
+<p>如果没有 <code>-i</code> 参数的话，这种「原地 rebase」相当于空操作，会直接结束。而在加了 <code>-i</code> 后，就会跳到一个新的界面：</p>
+<p></p><figure><img alt="" src="https://user-gold-cdn.xitu.io/2017/11/22/15fdf5fd04f46d6e?w=590&amp;h=409&amp;f=jpeg&amp;s=137238"><figcaption></figcaption></figure><p></p>
+<h3 class="heading">编辑界面：选择 commit 和对应的操作</h3><p>这个编辑界面的最顶部，列出了将要「被 rebase」的所有 <code>commit</code>s，也就是倒数第二个 <code>commit</code> 「增加常见笑声集合」和最新的 <code>commit</code>「增加常见哭声集合」。需要注意，这个排列是正序的，旧的 <code>commit</code> 会排在上面，新的排在下面。</p>
+<p>这两行指示了两个信息：</p>
+<ol>
+<li>需要处理哪些 <code>commit</code>s；</li>
+<li>怎么处理它们。</li>
+</ol>
+<p>你需要修改这两行的内容来指定你需要的操作。每个 <code>commit</code> 默认的操作都是 <code>pick</code> （从图中也可以看出），表示「直接应用这个 <code>commit</code>」。所以如果你现在直接退出编辑界面，那么结果仍然是空操作。</p>
+<p>但你的目标是修改倒数第二个 <code>commit</code>，也就是上面的那个「增加常见笑声集合」，所以你需要把它的操作指令从 <code>pick</code> 改成 <code>edit</code> 。 <code>edit</code> 的意思是「应用这个 commit，然后停下来等待继续修正」。其他的操作指令，在这个界面里都已经列举了出来（下面的 "Commands…" 部分文字），你可以自己研究一下。</p>
+<p></p><figure><img alt="" src="https://user-gold-cdn.xitu.io/2017/11/22/15fdf5fd020c87f6?w=535&amp;h=254&amp;f=jpeg&amp;s=86065"><figcaption></figcaption></figure><p></p>
+<p>把 <code>pick</code> 修改成 <code>edit</code> 后，就可以退出编辑界面了：</p>
+<p></p><figure><img alt="" src="https://user-gold-cdn.xitu.io/2017/11/22/15fdf5fd007159fa?w=454&amp;h=169&amp;f=jpeg&amp;s=44688"><figcaption></figcaption></figure><p></p>
+<p>上图的提示信息说明，<code>rebase</code> 过程已经停在了第二个 <code>commit</code> 的位置，那么现在你就可以去修改你想修改的内容了。</p>
+<h3 class="heading">修改写错的 commit</h3><p>修改完成之后，和上节里的方法一样，用 <code>commit --amend</code> 来把修正应用到当前最新的 <code>commit</code>：</p>
+<pre><code class="hljs shell" lang="shell">git add 笑声
+git commit --amend</code></pre><p></p><figure><img alt="" src="https://user-gold-cdn.xitu.io/2017/11/22/15fdf5fd04de0d40?w=407&amp;h=96&amp;f=jpeg&amp;s=41778"><figcaption></figcaption></figure><p></p>
+<h3 class="heading">继续 rebase 过程</h3><p>在修复完成之后，就可以用 <code>rebase --continue</code> 来继续 <code>rebase</code> 过程，把后面的 <code>commit</code> 直接应用上去。</p>
+<pre><code class="hljs shell" lang="shell">git rebase --continue</code></pre><p></p><figure><img alt="" src="https://user-gold-cdn.xitu.io/2017/11/22/15fdf5fd54455c29?w=459&amp;h=61&amp;f=jpeg&amp;s=29623"><figcaption></figcaption></figure><p></p>
+<p>然后，这次交互式 <code>rebase</code> 的过程就完美结束了，你的那个倒数第二个写错的 <code>commit</code> 就也被修正了：</p>
+<p></p><figure><img alt="" src="https://user-gold-cdn.xitu.io/2017/11/22/15fdf5fd4e7d5257?w=548&amp;h=348&amp;f=gif&amp;s=266072"><figcaption></figcaption></figure><p></p>
+<p>实质上，交互式 <code>rebase</code> 并不是必须应用在「原地 rebase」上来修改写错的 <code>commit</code> ，这只不过是它最常见的用法。你同样也可以把它用在分叉的 <code>commit</code> 上，不过这个你就可以自己去研究一下了。</p>
+<h2 class="heading">小结</h2><p>这节介绍了交互式 <code>rebase</code>，它可以在 <code>rebase</code> 开始之前指定一些额外操作。交互式 <code>rebase</code> 最常用的场景是修改写错的 <code>commit</code>，但也可以用作其他用途。它的大致用法：</p>
+<ol>
+<li>使用方式是 <code>git rebase -i 目标commit</code>；</li>
+<li>在编辑界面中指定需要操作的 <code>commit</code>s 以及操作类型；</li>
+<li>操作完成之后用 <code>git rebase --continue</code> 来继续 <code>rebase</code> 过程。</li>
+</ol>

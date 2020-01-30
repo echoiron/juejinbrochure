@@ -1,0 +1,13 @@
+<h1 class="heading">高级 8：checkout 的本质</h1><p>在前面的 <code>branch</code> 的部分，我说到 <code>checkout</code> 可以用来切换 <code>branch</code>：</p>
+<pre><code class="hljs shell" lang="shell">git checkout branch2</code></pre><p></p><figure><img alt="checkout" src="https://user-gold-cdn.xitu.io/2017/11/30/160089d53b4f65a5?w=458&amp;h=572&amp;f=gif&amp;s=103354"><figcaption>checkout</figcaption></figure><p></p>
+<p>不过实质上，<code>checkout</code> 并不止可以切换 <code>branch</code>。<code>checkout</code> 本质上的功能其实是：签出（ checkout ）指定的 <code>commit</code>。</p>
+<p><code>git checkout branch名</code> 的本质，其实是把 <code>HEAD</code> 指向指定的 <code>branch</code>，然后签出这个 <code>branch</code> 所对应的 <code>commit</code> 的工作目录。所以同样的，<code>checkout</code> 的目标也可以不是 <code>branch</code>，而直接指定某个 <code>commit</code>：</p>
+<pre><code class="hljs shell" lang="shell">git checkout HEAD^^</code></pre><pre><code class="hljs shell" lang="shell">git checkout master~5</code></pre><pre><code class="hljs shell" lang="shell">git checkout 78a4bc</code></pre><pre><code class="hljs shell" lang="shell">git checkout 78a4bc^</code></pre><p>这些都是可以的。</p>
+<p>另外，如果你留心的话可能会发现，在 <code>git status</code> 的提示语中，Git 会告诉你可以用 <code>checkout -- 文件名</code> 的格式，通过「签出」的方式来撤销指定文件的修改：</p>
+<p></p><figure><img alt="" src="https://user-gold-cdn.xitu.io/2017/11/22/15fe34cc387ba541?w=616&amp;h=160&amp;f=jpeg&amp;s=58078"><figcaption></figcaption></figure><p></p>
+<h2 class="heading">小结</h2><p>这节的内容是对 <code>checkout</code> 的本质进行简述：</p>
+<p><code>checkout</code> 的本质是签出指定的 <code>commit</code>，所以你不止可以切换 <code>branch</code>，也可以直接指定 <code>commit</code> 作为参数，来把 <code>HEAD</code> 移动到指定的 <code>commit</code>。</p>
+<h2 class="heading">checkout 和 reset 的不同</h2><p><code>checkout</code> 和 <code>reset</code> 都可以切换 <code>HEAD</code> 的位置，它们除了有许多细节的差异外，最大的区别在于：<code>reset</code> 在移动 <code>HEAD</code> 时会带着它所指向的 <code>branch</code> 一起移动，而 <code>checkout</code> 不会。当你用 <code>checkout</code> 指向其他地方的时候，<code>HEAD</code> 和 它所指向的 <code>branch</code> 就自动脱离了。</p>
+<p>事实上，<code>checkout</code> 有一个专门用来只让 <code>HEAD</code> 和 <code>branch</code> 脱离而不移动 <code>HEAD</code> 的用法：</p>
+<pre><code class="hljs shell" lang="shell">git checkout --detach</code></pre><p>执行这行代码，Git 就会把 <code>HEAD</code> 和 <code>branch</code> 脱离，直接指向当前 <code>commit</code>：</p>
+<p></p><figure><img alt="git checkout --detach" src="https://user-gold-cdn.xitu.io/2017/11/30/1600acce7b90b009?w=590&amp;h=472&amp;f=gif&amp;s=94227"><figcaption>git checkout --detach</figcaption></figure><p></p>

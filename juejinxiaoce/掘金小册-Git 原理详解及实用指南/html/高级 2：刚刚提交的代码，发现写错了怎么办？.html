@@ -1,0 +1,12 @@
+<h1 class="heading">高级 2：刚刚提交的代码，发现写错了怎么办？</h1><p>刚提交了一个代码，发现有几个字写错了：</p>
+<p></p><figure><img alt="" src="https://user-gold-cdn.xitu.io/2017/11/21/15fdf01882286d88?w=286&amp;h=178&amp;f=jpeg&amp;s=30022"><figcaption></figcaption></figure><p></p>
+<p>怎么修复？</p>
+<p>当场再写一个修复这几个错别字的 <code>commit</code>？可以是可以，不过还有一个更加优雅和简单的解决方法：<code>commit -—amend</code>。</p>
+<p>"amend" 是「修正」的意思。在提交时，如果加上 <code>--amend</code> 参数，Git 不会在当前 <code>commit</code> 上增加 <code>commit</code>，而是会把当前 <code>commit</code> 里的内容和暂存区（stageing area）里的内容合并起来后创建一个新的 <code>commit</code>，<strong>用这个新的 <code>commit</code> 把当前 <code>commit</code> 替换掉</strong>。所以 <code>commit --amend</code> 做的事就是它的字面意思：对最新一条 <code>commit</code> 进行修正。</p>
+<p>具体地，对于上面这个错误，你就可以把文件中的错别字修改好之后，输入：</p>
+<pre><code class="hljs shell" lang="shell">git add 笑声.txt
+git commit --amend</code></pre><p></p><figure><img alt="" src="https://user-gold-cdn.xitu.io/2017/11/21/15fdf0187ef5dbbb?w=557&amp;h=137&amp;f=jpeg&amp;s=41733"><figcaption></figcaption></figure><p></p>
+<p>Git 会把你带到提交信息编辑界面。可以看到，提交信息默认是当前提交的提交信息。你可以修改或者保留它，然后保存退出。然后，你的最新 <code>commit</code> 就被更新了。</p>
+<p></p><figure><img alt="" src="https://user-gold-cdn.xitu.io/2017/11/21/15fdf0187f2f4b2d?w=420&amp;h=370&amp;f=gif&amp;s=54907"><figcaption></figcaption></figure><p></p>
+<h2 class="heading">小结</h2><p>这一节的内容只有一点：用 <code>commit --amend</code> 可以修复当前提交的错误。使用方式：</p>
+<pre><code class="hljs shell" lang="shell">git commit --amend</code></pre><p>需要注意的有一点：<code>commit --amend</code> 并不是直接修改原 <code>commit</code> 的内容，而是生成一条新的 <code>commit</code>。</p>

@@ -1,0 +1,157 @@
+<h1 class="heading">协议 2：Redis 文本协议结构</h1>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/5/19/1637757f34821de2?w=1200&amp;h=401&amp;f=png&amp;s=50682"><figcaption></figcaption></figure><p></p>
+<p>Redis 在互联网存储技术上使用非常普遍，它以高性能高并发、易于理解和易于使用而广泛应用于互联网服务的存储系统上。</p>
+<p>Redis 要对外提供存储服务，客户端和服务器之间免不了也要进行 RPC 通信，Redis 作者 Antirez 为 Redis 设计了一套专用的文本通讯协议 RESP。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/6/9/163e3f79f3ac85fd?w=910&amp;h=550&amp;f=png&amp;s=105102"><figcaption></figcaption></figure><p></p>
+<p>Antirez 认为数据库系统的瓶颈一般不在于网络流量，而是数据库自身内部逻辑处理上。所以即使 Redis 使用了浪费流量的文本协议，依然可以取得极高的访问性能。Redis 将所有数据都放在内存，用一个单线程对外提供服务，单个节点在跑满一个 CPU 核心的情况下可以达到了 10w/s 的超高 QPS。</p>
+<h2 class="heading">深入理解 RESP (Redis Serialization Protocol)</h2>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/5/31/163b4ebb8d0eda9b?w=749&amp;h=254&amp;f=png&amp;s=26822"><figcaption></figcaption></figure><p></p>
+<p>RESP 是 Redis 序列化协议的简写。它是一种直观的文本协议，优势在于实现异常简单，解析性能极好。</p>
+<p>Redis 协议将传输的结构数据分为 5 种最小单元类型，单元结束时统一加上回车换行符号<code>\r\n</code>。</p>
+<ol>
+<li>单行字符串 以<code>+</code>符号开头；</li>
+<li>多行字符串 以<code>$</code>符号开头，后跟字符串长度；</li>
+<li>整数值 以<code>:</code>符号开头，后跟整数的字符串形式；</li>
+<li>错误消息 以<code>-</code>符号开头；</li>
+<li>数组 以<code>*</code>号开头，后跟数组的长度；</li>
+</ol>
+<p><strong>单行字符串</strong> hello world</p>
+<pre><code class="hljs bash" lang="bash">+hello world\r\n
+</code></pre><p>直观打印如下：</p>
+<pre><code class="hljs bash" lang="bash">+hello world
+
+</code></pre><p><strong>多行字符串</strong> 第一行是长度，剩下的是内容，表示字符串 hello world 如下：</p>
+<pre><code class="hljs bash" lang="bash"><span class="hljs-variable">$11</span>\r\nhello world\r\n
+</code></pre><p>直观打印如下：</p>
+<pre><code class="hljs bash" lang="bash"><span class="hljs-variable">$11</span>
+hello world
+
+</code></pre><p>多行字符串当然也可以表示单行字符串。</p>
+<p><strong>整数</strong> 冒号开头 表示整数 1024 如下：</p>
+<pre><code class="hljs bash" lang="bash">:1024\r\n
+</code></pre><p>直观打印如下：</p>
+<pre><code class="hljs bash" lang="bash">:1024
+
+</code></pre><p><strong>错误</strong> 减号开头后跟错误名称和详细错误解释 表示「参数类型错误」如下：</p>
+<pre><code class="hljs bash" lang="bash">-WRONGTYPE Operation against a key holding the wrong kind of value\r\n
+</code></pre><p>直观打印如下：</p>
+<pre><code class="hljs bash" lang="bash">-WRONGTYPE Operation against a key holding the wrong kind of value
+
+</code></pre><p><strong>数组</strong> 第一行是长度，后面依次是每个内容，表示数组 [1,2,3] 如下：</p>
+<pre><code class="hljs bash" lang="bash">*3\r\n:1\r\n:2\r\n:3\r\n
+</code></pre><p>直观打印如下：</p>
+<pre><code class="hljs bash" lang="bash">*3
+:1
+:2
+:3
+
+</code></pre><p>数组里面可以嵌套其它类型，甚至可以嵌套另外一个数组，如此就可以形成复杂的数据结构。</p>
+<p><strong>NULL</strong> 用多行字符串表示，不过长度要写成-1。</p>
+<pre><code class="hljs bash" lang="bash">$-1\r\n
+</code></pre><p>直观打印如下：</p>
+<pre><code class="hljs bash" lang="bash">$-1
+
+</code></pre><p><strong>空串</strong> 用多行字符串表示，长度填 0。</p>
+<pre><code class="hljs bash" lang="bash"><span class="hljs-variable">$0</span>\r\n\r\n
+</code></pre><p>直观打印如下：</p>
+<pre><code class="hljs bash" lang="bash"><span class="hljs-variable">$0</span>
+
+
+</code></pre><p>注意这里有两个<code>\r\n</code>，为什么是两个，因为两个<code>\r\n</code> 之间隔的是空串。</p>
+<h2 class="heading">发送指令：客户端 -&gt; 服务器</h2>
+<p>客户端向服务器发送的指令只有一种格式，多行字符串数组。比如一个简单的 set 指令<code>set author codehole</code>会被序列化成下面的字符串。</p>
+<pre><code class="hljs bash" lang="bash">*3\r\n<span class="hljs-variable">$3</span>\r\nset\r\n<span class="hljs-variable">$6</span>\r\nauthor\r\n<span class="hljs-variable">$8</span>\r\ncodehole\r\n
+</code></pre><p>在控制台输出这个字符串如下，可以看出这是很好阅读的一种格式。</p>
+<pre><code class="hljs bash" lang="bash">*3
+<span class="hljs-variable">$3</span>
+<span class="hljs-built_in">set</span>
+<span class="hljs-variable">$6</span>
+author
+<span class="hljs-variable">$8</span>
+codehole
+
+</code></pre><h2 class="heading">发送指令：服务器 -&gt; 客户端</h2>
+<p>服务器向客户端回复的响应要支持多种数据结构，所以消息响应在结构上要复杂不少。不过再复杂的响应消息也是以上 5 中基本类型的组合。</p>
+<p><strong>单行字符串响应</strong></p>
+<pre><code class="hljs bash" lang="bash">127.0.0.1:6379&gt; <span class="hljs-built_in">set</span> author codehole
+OK
+</code></pre><p>这里的 OK 就是单行响应，没有使用引号括起来。</p>
+<pre><code class="hljs bash" lang="bash">+OK
+
+</code></pre><p><strong>错误响应</strong></p>
+<pre><code class="hljs bash" lang="bash">127.0.0.1:6379&gt; incr author
+(error) ERR value is not an <span class="hljs-built_in">integer</span> or out of range
+</code></pre><p>试图对一个字符串进行自增，服务器抛出一个通用的错误。</p>
+<pre><code class="hljs bash" lang="bash">-ERR value is not an <span class="hljs-built_in">integer</span> or out of range
+
+</code></pre><p><strong>整数响应</strong></p>
+<pre><code class="hljs bash" lang="bash">127.0.0.1:6379&gt; incr books
+(<span class="hljs-built_in">integer</span>) 1
+</code></pre><p>这里的<code>1</code>就是整数响应。</p>
+<pre><code class="hljs bash" lang="bash">:1
+
+</code></pre><p><strong>多行字符串响应</strong></p>
+<pre><code class="hljs bash" lang="bash">127.0.0.1:6379&gt; get author
+<span class="hljs-string">"codehole"</span>
+</code></pre><p>这里使用双引号括起来的字符串就是多行字符串响应。</p>
+<pre><code class="hljs bash" lang="bash"><span class="hljs-variable">$8</span>
+codehole
+
+</code></pre><p><strong>数组响应</strong></p>
+<pre><code class="hljs bash" lang="bash">127.0.0.1:6379&gt; hset info name laoqian
+(<span class="hljs-built_in">integer</span>) 1
+127.0.0.1:6379&gt; hset info age 30
+(<span class="hljs-built_in">integer</span>) 1
+127.0.0.1:6379&gt; hset info sex male
+(<span class="hljs-built_in">integer</span>) 1
+127.0.0.1:6379&gt; hgetall info
+1) <span class="hljs-string">"name"</span>
+2) <span class="hljs-string">"laoqian"</span>
+3) <span class="hljs-string">"age"</span>
+4) <span class="hljs-string">"30"</span>
+5) <span class="hljs-string">"sex"</span>
+6) <span class="hljs-string">"male"</span>
+</code></pre><p>这里的 hgetall 命令返回的就是一个数值，第 0|2|4 位置的字符串是 hash 表的 key，第 1|3|5 位置的字符串是 value，客户端负责将数组组装成字典再返回。</p>
+<pre><code class="hljs bash" lang="bash">*6
+<span class="hljs-variable">$4</span>
+name
+<span class="hljs-variable">$6</span>
+laoqian
+<span class="hljs-variable">$3</span>
+age
+<span class="hljs-variable">$2</span>
+30
+<span class="hljs-variable">$3</span>
+sex
+<span class="hljs-variable">$4</span>
+male
+
+</code></pre><p><strong>嵌套</strong></p>
+<pre><code class="hljs bash" lang="bash">127.0.0.1:6379&gt; scan 0
+1) <span class="hljs-string">"0"</span>
+2) 1) <span class="hljs-string">"info"</span>
+   2) <span class="hljs-string">"books"</span>
+   3) <span class="hljs-string">"author"</span>
+</code></pre><p>scan 命令用来扫描服务器包含的所有 key 列表，它是以游标的形式获取，一次只获取一部分。</p>
+<p>scan 命令返回的是一个嵌套数组。数组的第一个值表示游标的值，如果这个值为零，说明已经遍历完毕。如果不为零，使用这个值作为 scan 命令的参数进行下一次遍历。数组的第二个值又是一个数组，这个数组就是 key 列表。</p>
+<pre><code class="hljs bash" lang="bash">*2
+<span class="hljs-variable">$1</span>
+0
+*3
+<span class="hljs-variable">$4</span>
+info
+<span class="hljs-variable">$5</span>
+books
+<span class="hljs-variable">$6</span>
+author
+</code></pre><h2 class="heading">小结</h2>
+<p>虽然 Redis 协议里有大量冗余的回车换行符，但是这并不影响它成为互联网技术领域非常受欢迎的一个文本协议。有很多开源项目使用 RESP 作为它的通讯协议。因为在技术领域，性能并不总是代表一切，有时还要考虑简单性、易理解性和易实现性，这些都需要进行适当权衡。</p>
+<p>Redis 协议作为开源协议中的一朵奇葩，它并没有向网络流量倾斜进行极致优化，而是选择了照顾协议的直观性、可理解性。</p>
+<p>下一节我们拿另一个广为使用的协议 Protobuf 作为样本做介绍。相对于 Redis，Protobuf 在流量上做到了极致优化，并且是一个二进制的协议，所以注定对人类不太友好，但是它的使用真的是太太广泛啦，读者们必须耐心掌握。</p>
+<h2 class="heading">练习</h2>
+<p>请读者尝试修改一下 redis-py 的源码，在里面增加输入输出消息的打印。然后观察 Redis 常用指令对应的输入输出消息的具体格式。</p>
+<h3 class="heading">扩展阅读</h3>
+<p>最近，Redis 作者对 RESP 协议进行了升级，又增加了好多数据类型。这些新内容似乎让本来很简单的文本协议在升级之后变得复杂，感兴趣的读者可以点击下面链接阅读。</p>
+<ul>
+<li><a target="_blank" href="https://gist.github.com/antirez/2bc68a9e9e45395e297d288453d5d54c">RESP3 协议草稿</a></li>
+</ul>

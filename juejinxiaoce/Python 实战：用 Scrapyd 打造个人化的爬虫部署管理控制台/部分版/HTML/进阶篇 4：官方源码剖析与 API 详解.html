@@ -1,0 +1,204 @@
+<h1 class="heading">官方源码剖析与 API 详解</h1>
+<p>本小节我们将对 Scrapyd 原有的 API 做个详细的剖析，只有在了解它原有设计思想与代码风格后，我们才能够照猫画虎，设计出风格相似的代码模块，为之后我们自定义 API 和编写权限验证功能打下基础。</p>
+<blockquote>
+<p>API 相关代码在 <code>webservice.py</code> 文件中。</p>
+</blockquote>
+<p>根据前面的小节，我们知道 Scrapyd 的视图分为 HTML 和 JSON 两种。我们所看到的数据呈现都是由视图类处理的，比如:</p>
+<pre><code>* 当我们访问根目录的时候，对应的的是 Home 这个类；
+* 而访问 Jobs 的时候，对应的的是 Jobs 这个类；
+* 而爬虫的 API 则是，如启动爬虫的 Schedule 类和查看爬虫列表的 ListSpiders 类。
+</code></pre>
+<h2 class="heading">HTML 视图</h2>
+<p>HTML 视图类都写在 Scrapyd 目录下的<code>website.py</code>文件中，里面有三个类：<code>Root</code>、<code>Home</code>、<code>Jobs</code>。</p>
+<h3 class="heading">Root 类</h3>
+<p>Root 完成了<code>Web</code>路由设置，Scrapyd 一些基础配置的读取设置，日志目录和<code>Item</code>目录与路由配置、项目信息更新等任务，是 Scrapyd 的重要组成部分，其代码结构如下图所示：
+</p><figure><img src="https://user-gold-cdn.xitu.io/2018/10/17/16680fc95682b5f5?w=726&amp;h=735&amp;f=png&amp;s=28547"><figcaption></figcaption></figure><p></p>
+<h4 class="heading">Web 路由设置</h4>
+<p>在 Root 类的<code>__init__</code>方法中 Home 类以及 Jobs 类的路由是通过 Twisted 的 putChild 进行配置的：</p>
+<pre><code class="hljs Python" lang="Python">self.putChild(<span class="hljs-string">b'jobs'</span>, Jobs(self, local_items))
+self.putChild(<span class="hljs-string">b''</span>, Home(self, local_items))
+</code></pre><h4 class="heading">日志与 Item 目录配置</h4>
+<p>同样在<code>__init__</code>方法中，先读取日志与 Item 的目录：</p>
+<pre><code class="hljs Python" lang="Python">logsdir = config.get(<span class="hljs-string">'logs_dir'</span>)
+itemsdir = config.get(<span class="hljs-string">'items_dir'</span>)
+</code></pre><p>然后为它们设置路由：</p>
+<pre><code class="hljs Python" lang="Python">self.putChild(<span class="hljs-string">b'items'</span>, static.File(itemsdir, <span class="hljs-string">'text/plain'</span>))
+self.putChild(<span class="hljs-string">b'logs'</span>, static.File(logsdir.encode(<span class="hljs-string">'ascii'</span>, <span class="hljs-string">'ignore'</span>), <span class="hljs-string">'text/plain'</span>))
+</code></pre><h4 class="heading">项目信息更新</h4>
+<p>当项目变动，比如增删 projects，就会通过 <code>update_projects()</code> 方法进行更新：</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">update_projects</span><span class="hljs-params">(self)</span>:</span>
+    self.poller.update_projects()
+    self.scheduler.update_projects()
+<span class="hljs-meta">@property</span>
+<span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">poller</span><span class="hljs-params">(self)</span>:</span>
+    <span class="hljs-keyword">return</span> self.app.getComponent(IPoller)
+    
+<span class="hljs-meta">@property</span>
+<span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">scheduler</span><span class="hljs-params">(self)</span>:</span>
+    <span class="hljs-keyword">return</span> self.app.getComponent(ISpiderScheduler)
+
+</code></pre><h4 class="heading">Scrapyd 的其他一些基础配置等</h4>
+<p>比如读取配置文件并且将其赋值给变量：</p>
+<pre><code class="hljs Python" lang="Python">self.debug = config.getboolean(<span class="hljs-string">'debug'</span>, <span class="hljs-keyword">False</span>)
+self.runner = config.get(<span class="hljs-string">'runner'</span>)
+services = config.items(<span class="hljs-string">'services'</span>, ())
+</code></pre><h3 class="heading">Home 类</h3>
+<p>Home 负责 Scrapyd 首页的呈现，当我们访问<code>http://localhost:6800</code>
+时看到的界面，就是访问 Home 类，它完成了页面 HTML 布局以及当前已有项目<code>projects</code>的名称列表展示。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/10/17/16681024695fa0a3?w=750&amp;h=332&amp;f=png&amp;s=15483"><figcaption></figcaption></figure><p></p>
+<h4 class="heading"><code>__init__</code> 方法</h4>
+<p>Home 类继承自<code>resource.Resource</code>，并且重写了<code>__init__</code>方法，以定义一个 Web 可访问资源：</p>
+<pre><code>def __init__(self, root, local_items):
+    resource.Resource.__init__(self)
+    self.root = root
+    self.local_items = local_items
+</code></pre>
+<h4 class="heading">对于页面呈现的建议</h4>
+<p>Rource 中 render 对于页面呈现的建议：</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-string">"""
+I delegate to methods of self with the form 'render_METHOD'
+where METHOD is the HTTP that was used to make the
+request. Examples: render_GET, render_HEAD, render_POST, and
+so on. Generally you should implement those methods instead of
+overriding this one.
+"""</span>
+</code></pre><h4 class="heading">HTML 布局的实现以及已有项目列表展示</h4>
+<p>使用 render 建议的方式，用<code>render_GET</code>来完成页面的呈现：</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">render_GET</span><span class="hljs-params">(self, txrequest)</span>:</span>
+   vars = {<span class="hljs-string">'projects'</span>: <span class="hljs-string">', '</span>.join(self.root.scheduler.list_projects())}
+   s = <span class="hljs-string">"…… ……"</span>
+   <span class="hljs-keyword">return</span> s.encode(<span class="hljs-string">'utf-8'</span>)
+</code></pre><h3 class="heading">Jobs 类</h3>
+<p>Jobs 负责 Scrapyd 首页爬虫运行状态展示、日志记录以及取消爬虫运行，当我们访问<code>http://localhost:6800/jobs/</code>时看到的界面，就是 Jobs 类。同样，它也是继承了 <code>resource.Resource</code>。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/10/17/16681085d3992657?w=739&amp;h=927&amp;f=png&amp;s=38600"><figcaption></figcaption></figure><p></p>
+<h4 class="heading">Cancel 与 Header</h4>
+<p>它设定取消按钮以及爬虫运行信息的列名：</p>
+<pre><code class="hljs Python" lang="Python">cancel_button = <span class="hljs-string">"""
+&lt;form method="post" action="/cancel.json"&gt;
+   ……
+      ……
+"""</span>.format
+
+header_cols = [
+    <span class="hljs-string">'Project'</span>, <span class="hljs-string">'Spider'</span>, <span class="hljs-string">'Job'</span>, <span class="hljs-string">'PID'</span>, <span class="hljs-string">'Start'</span>, 
+    <span class="hljs-string">'Runtime'</span>, <span class="hljs-string">'Finish'</span>, <span class="hljs-string">'Log'</span>, <span class="hljs-string">'Items'</span>, <span class="hljs-string">'Cancel'</span>,
+]
+</code></pre><h4 class="heading">设定 CSS 样式</h4>
+<p>为爬虫日志表格设定 CSS 样式：</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">gen_css</span><span class="hljs-params">(self)</span>:</span>
+    css = [
+        <span class="hljs-string">'#jobs&gt;thead td {text-align: center; font-weight: bold}'</span>,
+        <span class="hljs-string">'#jobs&gt;tbody&gt;tr:first-child {background-color: #eee}'</span>]
+    ……
+    <span class="hljs-keyword">return</span> <span class="hljs-string">'\n'</span>.join(css)
+</code></pre><h4 class="heading">生成表头</h4>
+<p>生成爬虫日志表格的表头数据：</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">prep_row</span><span class="hljs-params">(self, cells)</span>:</span>
+    <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> isinstance(cells, dict):
+        <span class="hljs-keyword">assert</span> len(cells) == len(self.header_cols)
+    <span class="hljs-keyword">else</span>:
+        cells = [cells.get(k) <span class="hljs-keyword">for</span> k <span class="hljs-keyword">in</span> self.header_cols]
+    cells = [<span class="hljs-string">'&lt;td&gt;%s&lt;/td&gt;'</span> % (<span class="hljs-string">''</span> <span class="hljs-keyword">if</span> c <span class="hljs-keyword">is</span> <span class="hljs-keyword">None</span> <span class="hljs-keyword">else</span> c) <span class="hljs-keyword">for</span> c <span class="hljs-keyword">in</span> cells]
+    <span class="hljs-keyword">return</span> <span class="hljs-string">'&lt;tr&gt;%s&lt;/tr&gt;'</span> % <span class="hljs-string">''</span>.join(cells)
+</code></pre><h4 class="heading">Pending 状态爬虫列表</h4>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">prep_tab_pending</span><span class="hljs-params">(self)</span>:</span>
+    <span class="hljs-keyword">return</span> <span class="hljs-string">'\n'</span>.join(
+        ……
+    )
+</code></pre><h4 class="heading">正在运行的爬虫列表</h4>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">prep_tab_running</span><span class="hljs-params">(self)</span>:</span>
+    <span class="hljs-keyword">return</span> <span class="hljs-string">'\n'</span>.join(
+        ……
+        <span class="hljs-keyword">for</span> p <span class="hljs-keyword">in</span> self.root.launcher.processes.values()
+    )
+</code></pre><h4 class="heading">运行完毕的爬虫列表及日志记录</h4>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">prep_tab_finished</span><span class="hljs-params">(self)</span>:</span>
+    <span class="hljs-keyword">return</span> <span class="hljs-string">'\n'</span>.join(
+        ……
+        <span class="hljs-keyword">for</span> p <span class="hljs-keyword">in</span> self.root.launcher.finished
+    )
+</code></pre><h4 class="heading">生成爬虫运行信息表</h4>
+<p>调用以上功能，生成爬虫运行信息表格：</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">prep_table</span><span class="hljs-params">(self)</span>:</span>
+    <span class="hljs-keyword">return</span> (
+            <span class="hljs-string">'&lt;table id="jobs" border="1"&gt;'</span>
+            self.prep_row(self.header_cols)
+            self.prep_tab_pending()
+            self.prep_tab_running()
+            self.prep_tab_finished()
+            <span class="hljs-string">'…… ……'</span>
+            )
+</code></pre><h4 class="heading">页面渲染</h4>
+<p>使用 render 方法，将生成的爬虫运行信息呈现到<code>localhost:6800/jobs/</code>页面：</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">render</span><span class="hljs-params">(self, txrequest)</span>:</span>
+    doc = self.prep_doc()
+    txrequest.setHeader(<span class="hljs-string">'Content-Type'</span>, <span class="hljs-string">'text/html; charset=utf-8'</span>)
+    txrequest.setHeader(<span class="hljs-string">'Content-Length'</span>, len(doc))
+    <span class="hljs-keyword">return</span> doc.encode(<span class="hljs-string">'utf-8'</span>)
+</code></pre><h2 class="heading">JSON 视图</h2>
+<p>JSON 视图类都写在 Scrapyd 目录下的<code>webservice.py</code>文件中，里面除了官方文档中提到的 API 外，还有它们父类<code>WsResource</code>。
+这里我挑选 3个 API 对应的类进行讲解。</p>
+<h3 class="heading">ListProjects 类</h3>
+<p>ListProjects 类的作用是返回当前 Scrapyd 服务器上的爬虫项目列表。</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">ListProjects</span><span class="hljs-params">(WsResource)</span>:</span>
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">render_GET</span><span class="hljs-params">(self, txrequest)</span>:</span>
+        projects = list(self.root.scheduler.list_projects())
+        <span class="hljs-keyword">return</span> {<span class="hljs-string">"node_name"</span>: self.root.nodename, <span class="hljs-string">"status"</span>: <span class="hljs-string">"ok"</span>, <span class="hljs-string">"projects"</span>: projects}
+
+</code></pre><p>它使用 <code>render_GET</code> 方法，所以在浏览器可以输入<code>http://localhost:6800/listprojects.json</code>来访问并获得 JSON 格式的结果，比如：</p>
+<pre><code class="hljs JSON" lang="JSON">{<span class="hljs-attr">"status"</span>: <span class="hljs-string">"ok"</span>, <span class="hljs-attr">"projects"</span>: [<span class="hljs-string">"AlibabaProject"</span>, <span class="hljs-string">"JDProject"</span>]}
+</code></pre><h3 class="heading">ListSpiders 类</h3>
+<p>ListSpiders 的作用是返回当前 Scrapyd 服务器上指定项目名的爬虫列表。</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">ListSpiders</span><span class="hljs-params">(WsResource)</span>:</span>
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">render_GET</span><span class="hljs-params">(self, txrequest)</span>:</span>
+        args = native_stringify_dict(copy(txrequest.args), keys_only=<span class="hljs-keyword">False</span>)
+        project = args[<span class="hljs-string">'project'</span>][<span class="hljs-number">0</span>]
+        version = args.get(<span class="hljs-string">'_version'</span>, [<span class="hljs-string">''</span>])[<span class="hljs-number">0</span>]
+        spiders = get_spider_list(project, runner=self.root.runner, version=version)
+        <span class="hljs-keyword">return</span> {<span class="hljs-string">"node_name"</span>: self.root.nodename, <span class="hljs-string">"status"</span>: <span class="hljs-string">"ok"</span>, <span class="hljs-string">"spiders"</span>: spiders}
+</code></pre><p>它也是使用<code>render_GET</code>方法，但是它需要携带项目名称作为请求参数。如：<code>http://localhost:6800/listspiders.json?project=AlibabaProject</code>返回的结果同样是 json 格式，通过返回的 json 数据，我们知道 AlibabaProject 项目中当前有哪些爬虫。</p>
+<pre><code class="hljs json" lang="json">{<span class="hljs-attr">"status"</span>: <span class="hljs-string">"ok"</span>, <span class="hljs-attr">"spiders"</span>: [<span class="hljs-string">"taobao"</span>, <span class="hljs-string">"1688"</span>, <span class="hljs-string">"tmall"</span>]}
+</code></pre><h3 class="heading">DeleteProject 类</h3>
+<p>DeleteProject 的作用是用于删除 Scrapyd 上已有的爬虫项目。</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">DeleteProject</span><span class="hljs-params">(WsResource)</span>:</span>
+    
+        <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">render_POST</span><span class="hljs-params">(self, txrequest)</span>:</span>
+            args = native_stringify_dict(copy(txrequest.args), keys_only=<span class="hljs-keyword">False</span>)
+            project = args[<span class="hljs-string">'project'</span>][<span class="hljs-number">0</span>]
+            self._delete_version(project)
+            UtilsCache.invalid_cache(project)
+            <span class="hljs-keyword">return</span> {<span class="hljs-string">"node_name"</span>: self.root.nodename, <span class="hljs-string">"status"</span>: <span class="hljs-string">"ok"</span>}
+    
+        <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">_delete_version</span><span class="hljs-params">(self, project, version=None)</span>:</span>
+            self.root.eggstorage.delete(project, version)
+            self.root.update_projects()
+</code></pre><p>它使用的则是<code>render_POST</code>方法，所以请求的时候我们必须以 post 方式进行，并且它要求携带项目名称作为参数值，如:<code>http://localhost:6800/delproject.json -d project=AlibabaProject</code>在成功删除项目后，更新爬虫项目列表，</p>
+<pre><code class="hljs Python" lang="Python">self.root.update_projects()
+</code></pre><p>如果操作全部成功，我们得到的响应为：</p>
+<pre><code class="hljs json" lang="json">{<span class="hljs-attr">"status"</span>: <span class="hljs-string">"ok"</span>}
+</code></pre><h2 class="heading">视图父类与 Resource</h2>
+<p>JSON 视图和 HTML 视图的父类是不同的。在 HTML 视图部分，Home 和 Jobs 都继承自<code>resource.Resource</code>，而 JSON 视图部分则继承自<code>WsResource</code>。</p>
+<h3 class="heading">WsResource</h3>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">WsResource</span><span class="hljs-params">(JsonResource)</span>:</span>
+    
+        <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">__init__</span><span class="hljs-params">(self, root)</span>:</span>
+            JsonResource.__init__(self)
+            self.root = root
+    
+        <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">render</span><span class="hljs-params">(self, txrequest)</span>:</span>
+            <span class="hljs-keyword">try</span>:
+                <span class="hljs-keyword">return</span> JsonResource.render(self, txrequest).encode(<span class="hljs-string">'utf-8'</span>)
+            <span class="hljs-keyword">except</span> Exception <span class="hljs-keyword">as</span> e:
+                <span class="hljs-keyword">if</span> self.root.debug:
+                    <span class="hljs-keyword">return</span> traceback.format_exc().encode(<span class="hljs-string">'utf-8'</span>)
+                log.err()
+                r = {<span class="hljs-string">"node_name"</span>: self.root.nodename, <span class="hljs-string">"status"</span>: <span class="hljs-string">"error"</span>, <span class="hljs-string">"message"</span>: str(e)}
+                <span class="hljs-keyword">return</span> self.render_object(r, txrequest).encode(<span class="hljs-string">'utf-8'</span>)
+</code></pre><p>它定义了 render 方法，默认返回的是 json 格式，当返回 json 格式出错时返回报错信息。<code>JsonResource中为json格式定义了一些头信息</code>，并且将 return 的数据转为 json 格式数据。</p>
+<h3 class="heading">resource.Resource</h3>
+<p><code>Resource</code>中有很多方法，它的主要功能是定义一个可访问的 Web 资源，并且提供 HTTP 请求的标准、URL 路由设定标准，如<code>putChild</code>等，下图为<code>Resource</code>类的结构图：</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/10/17/166810f2b6605006?w=767&amp;h=1378&amp;f=png&amp;s=59087"><figcaption></figcaption></figure><p></p>
+<h2 class="heading">小结</h2>
+<p>本小节通过阅读 Scrapyd 中负责 HTML 视图的<code>Root</code>、<code>Home</code>、<code>Jobs</code>类和阅读<code>API 中的几个类</code>，知道了 Scrapyd 的<code>视图及 API 构成</code>，并通过阅读其<code>父类</code>加深了对 Scrapyd 视图的理解。</p>

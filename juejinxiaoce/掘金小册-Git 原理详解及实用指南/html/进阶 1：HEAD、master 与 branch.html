@@ -1,0 +1,122 @@
+<h1 class="heading">进阶 1：HEAD、master 与 branch</h1>
+<p>这一节主要是几个概念的解释：HEAD、master 以及 Git 中非常重要的一个概念： branch。</p>
+<h2 class="heading">引用：commit 的快捷方式</h2>
+<p>首先，再看一次 <code>log</code>：</p>
+<pre><code class="hljs shell" lang="shell">git log
+</code></pre><p></p><figure><img src="https://user-gold-cdn.xitu.io/2017/11/20/15fd779f5e2ebbd0?w=602&amp;h=283&amp;f=jpeg&amp;s=93360"><figcaption></figcaption></figure><p></p>
+<p>第一行的 <code>commit</code> 后面括号里的 <code>HEAD -&gt; master, origin/master, origin/HEAD</code> ，是几个指向这个 <code>commit</code> 的引用。在 Git 的使用中，经常会需要对指定的 <code>commit</code> 进行操作。每一个 <code>commit</code> 都有一个它唯一的指定方式——它的 SHA-1 校验和，也就是上图中每个黄色的 <code>commit</code> 右边的那一长串字符。两个 SHA-1 值的重复概率极低，所以你可以使用这个 SHA-1 值来指代 <code>commit</code>，也可以只使用它的前几位来指代它（例如第一个 <code>78bb0ab7d541…16b77</code>，你使用 <code>78bb0ab</code> 甚至 <code>78bb</code> 来指代它通常也可以），但毕竟这种没有任何含义的字符串是很难记忆的，所以 Git 提供了「引用」的机制：使用固定的字符串作为引用，指向某个 <code>commit</code>，作为操作 <code>commit</code> 时的快捷方式。</p>
+<h2 class="heading">HEAD：当前 commit 的引用</h2>
+<p>上一段里说到，图中括号里是指向这个 <code>commit</code> 的引用。其中这个括号里的 <code>HEAD</code> 是引用中最特殊的一个：它是<strong>指向当前 <code>commit</code> 的引用</strong>。所谓**当前 <code>commit</code>**这个概念很简单，它指的就是当前工作目录所对应的 <code>commit</code>。</p>
+<p>例如上图中的当前 <code>commit</code> 就是第一行中的那个最新的 <code>commit</code>。每次当有新的 <code>commit</code> 的时候，工作目录自动与最新的 <code>commit</code> 对应；而与此同时，<code>HEAD</code> 也会转而指向最新的 <code>commit</code>。事实上，当使用 <code>checkout</code>、<code>reset</code> 等指令手动指定改变当前 <code>commit</code> 的时候，<code>HEAD</code> 也会一起跟过去。</p>
+<p>总之，当前 <code>commit</code> 在哪里，<code>HEAD</code> 就在哪里，这是一个永远自动指向当前 <code>commit</code> 的引用，所以你永远可以用 <code>HEAD</code> 来操作当前 <code>commit</code>。</p>
+<h2 class="heading">branch</h2>
+<p><code>HEAD</code> 是 Git 中一个独特的引用，它是唯一的。而除了 <code>HEAD</code> 之外，Git 还有一种引用，叫做 <code>branch</code>（分支）。<code>HEAD</code> 除了可以指向 <code>commit</code>，还可以指向一个 <code>branch</code>，当它指向某个 <code>branch</code> 的时候，会通过这个 <code>branch</code> 来间接地指向某个 <code>commit</code>；另外，当 <code>HEAD</code> 在提交时自动向前移动的时候，它会像一个拖钩一样带着它所指向的 <code>branch</code> 一起移动。</p>
+<p>例如上面的那张图里，<code>HEAD -&gt; master</code> 中的 <code>master</code> 就是一个 <code>branch</code> 的名字，而它左边的箭头 <code>-&gt;</code> 表示 <code>HEAD</code> 正指向它（当然，也会间接地指向它所指向的 <code>commit</code>）。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2017/11/20/15fd779f5d3e6b63?w=449&amp;h=295&amp;f=jpeg&amp;s=13818"><figcaption></figcaption></figure><p></p>
+<p>如果我在这时创建一个 <code>commit</code>，那么 <code>HEAD</code> 会带着 <code>master</code> 一起移动到最新的 <code>commit</code>：</p>
+<pre><code class="hljs shell" lang="shell">git commit
+</code></pre><p></p><figure><img src="https://user-gold-cdn.xitu.io/2017/11/20/15fd779f983c81e7?w=568&amp;h=306&amp;f=gif&amp;s=144193"><figcaption></figcaption></figure><p></p>
+<p>通过查看 <code>log</code>，可以对这个逻辑进行验证：</p>
+<pre><code class="hljs shell" lang="shell">git log
+</code></pre><p></p><figure><img src="https://user-gold-cdn.xitu.io/2017/11/20/15fd779f5c2ca7c3?w=548&amp;h=266&amp;f=jpeg&amp;s=91444"><figcaption></figcaption></figure><p></p>
+<p>从图中可以看出，最新的 <code>commit</code> （提交信息："Add feature1"）被创建后，<code>HEAD</code> 和 <code>master</code> 这两个引用都指向了它，而在上面第一张图中的后两个引用 <code>origin/master</code> 和 <code>origin/HEAD</code> 则依然停留在原先的位置。</p>
+<h2 class="heading">master: 默认 branch</h2>
+<p>上面的这个 <code>master</code> ，其实是一个特殊的 <code>branch</code>：它是 Git 的默认 <code>branch</code>（俗称主 <code>branch</code> / 主分支）。</p>
+<p>所谓的「默认 branch」，主要有两个特点：</p>
+<ol>
+<li>
+<p>新创建的 repository（仓库）是没有任何 <code>commit</code> 的。但在它创建第一个 <code>commit</code> 时，会把 <code>master</code> 指向它，并把 <code>HEAD</code> 指向 <code>master</code>。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2017/11/20/15fd779f5c66ac9e?w=500&amp;h=304&amp;f=gif&amp;s=77304"><figcaption></figcaption></figure><p></p>
+</li>
+<li>
+<p>当有人使用 <code>git clone</code> 时，除了从远程仓库把 <code>.git</code> 这个仓库目录下载到工作目录中，还会 <code>checkout</code> （签出） <code>master</code>（<code>checkout</code> 的意思就是把某个 <code>commit</code> 作为当前 <code>commit</code>，把 <code>HEAD</code> 移动过去，并把工作目录的文件内容替换成这个 <code>commit</code> 所对应的内容）。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2017/11/20/15fd779f5c191a3f?w=682&amp;h=620&amp;f=gif&amp;s=463251"><figcaption></figcaption></figure><p></p>
+</li>
+</ol>
+<p>另外，需要说一下的是，大多数的开发团队会规定开发以 <code>master</code> 为核心，所有的分支都在一定程度上围绕着 <code>master</code> 来开发。这个在事实上构成了 <code>master</code> 和其它分支在地位上的一个额外的区别。</p>
+<h2 class="heading">branch 的通俗化理解</h2>
+<p>尽管在 Git 中，<code>branch</code> 只是一个指向 <code>commit</code> 的引用，但它有一个更通俗的理解：你还可以把一个 <code>branch</code> 理解为从初始 <code>commit</code> 到 <code>branch</code> 所指向的 <code>commit</code> 之间的所有 <code>commit</code>s 的一个「串」。例如下面这张图：</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2017/11/20/15fd779fa5e6970d?w=457&amp;h=205&amp;f=jpeg&amp;s=11282"><figcaption></figcaption></figure><p></p>
+<p><code>master</code> 的本质是一个指向 <code>3</code> 的引用，但你也可以把 <code>master</code> 理解为是 <code>1</code> <code>2</code> <code>3</code> 三个 <code>commit</code> 的「串」，它的起点是 <code>1</code>，终点是 <code>3</code>。</p>
+<p>这种理解方式比较符合 <code>branch</code> 这个名字的本意（branch 的本意是树枝，可以延伸为事物的分支），也是大多数人对 <code>branch</code> 的理解。不过如果你选择这样理解 <code>branch</code>，需要注意下面两点：</p>
+<ol>
+<li>
+<p>所有的 <code>branch</code> 之间都是平等的。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2017/11/20/15fd779fa58eff02?w=462&amp;h=354&amp;f=jpeg&amp;s=20299"><figcaption></figcaption></figure><p></p>
+<p>例如上面这张图，<code>branch1</code> 是 <code>1</code> <code>2</code> <code>5</code> <code>6</code> 的串，而不要理解为 <code>2</code> <code>5</code> <code>6</code> 或者 <code>5</code> <code>6</code> 。其实，起点在哪里并不是最重要的，重要的是你要知道，所有 <code>branch</code> 之间是平等的，<code>master</code> 除了上面我说的那几点之外，并不比其他 <code>branch</code> 高级。这个认知的理解对于 <code>branch</code> 的正确使用非常重要。</p>
+<p>换个角度来说，上面这张图我可以用别的画法来表达，它们的意思是一样的：</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2017/11/20/15fd779ff346fbd7?w=506&amp;h=432&amp;f=gif&amp;s=736280"><figcaption></figcaption></figure><p></p>
+<p>通过这张动图应该能够对「平等」这个概念更好地理解了吧？</p>
+</li>
+<li>
+<p><code>branch</code> 包含了从初始 <code>commit</code> 到它的所有路径，而不是一条路径。并且，这些路径之间也是彼此平等的。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2017/11/22/15fe3354a1d3cd26?w=602&amp;h=354&amp;f=gif&amp;s=132218"><figcaption></figcaption></figure><p></p>
+<p>像上图这样，<code>master</code> 在合并了 <code>branch1</code> 之后，从初始 <code>commit</code> 到 <code>master</code> 有了两条路径。这时，<code>master</code> 的串就包含了 <code>1</code> <code>2</code> <code>3</code> <code>4</code> <code>7</code> 和 <code>1</code> <code>2</code> <code>5</code> <code>6</code> <code>7</code> 这两条路径。而且，这两条路径是平等的，<code>1</code> <code>2</code> <code>3</code> <code>4</code> <code>7</code>  这条路径并不会因为它是「原生路径」而拥有任何的特别之处。</p>
+</li>
+</ol>
+<p>如果你喜欢用「树枝」的概念来理解 Git 的 <code>branch</code>，一定要注意上面说的这两点，否则在今后使用 <code>branch</code> 的时候就可能与出现理解偏差或者使用方式不当的问题。事实上我本人并不喜欢用这种方式来理解 <code>branch</code>，因为觉得它有点舍近求远的味道：我为了「直观」地思考，给它了一个形象的比喻，但由于它的本质含义其实更加简单，导致我的这种比喻反而增加了思考它时的复杂度，未免有点画蛇添足。不过这是我自己的感受，怎么理解 <code>branch</code> 是个个人偏好的问题，这两种理解方式你选一个喜欢的就好。</p>
+<h2 class="heading">branch 的创建、切换和删除</h2>
+<h3 class="heading">创建 branch</h3>
+<p>如果你想在某处创建 <code>branch</code> ，只需要输入一行 <code>git branch 名称</code>。例如你现在在 <code>master</code> 上：</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2017/11/22/15fe3354b5d0800c?w=393&amp;h=291&amp;f=jpeg&amp;s=14268"><figcaption></figcaption></figure><p></p>
+<p>你想在这个 <code>commit</code> 处创建一个叫做 "feature1" 的 <code>branch</code>，只要输入：</p>
+<pre><code class="hljs shell" lang="shell">git branch feature1
+</code></pre><p>你的 <code>branch</code> 就创建好了：</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2017/11/22/15fe3354a1b892f7?w=392&amp;h=384&amp;f=jpeg&amp;s=18369"><figcaption></figcaption></figure><p></p>
+<h3 class="heading">切换 branch</h3>
+<p>不过新建的 <code>branch</code> 并不会自动切换，你的 <code>HEAD</code> 在这时依然是指向 <code>master</code> 的。你需要用 <code>checkout</code> 来主动切换到你的新 <code>branch</code> 去：</p>
+<pre><code class="hljs shell" lang="shell">git checkout feature1
+</code></pre><p>然后 <code>HEAD</code> 就会指向新建的 <code>branch</code> 了：</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2017/11/22/15fe3354a130b3cd?w=362&amp;h=378&amp;f=jpeg&amp;s=19078"><figcaption></figcaption></figure><p></p>
+<p>除此之外，你还可以用 <code>git checkout -b 名称</code> 来把上面两步操作合并执行。这行代码可以帮你用指定的名称创建 <code>branch</code> 后，再直接切换过去。还以 <code>feature1</code> 为例的话，就是：</p>
+<pre><code class="hljs shell" lang="shell">git checkout -b feature1
+</code></pre><p>在切换到新的 <code>branch</code> 后，再次 <code>commit</code> 时 <code>HEAD</code> 就会带着新的 <code>branch</code> 移动了：</p>
+<pre><code class="hljs shell" lang="shell">...
+git commit
+</code></pre><p></p><figure><img src="https://user-gold-cdn.xitu.io/2017/11/22/15fe3354a2a32692?w=504&amp;h=438&amp;f=gif&amp;s=157013"><figcaption></figcaption></figure><p></p>
+<p>而这个时候，如果你再切换到 <code>master</code> 去 <code>commit</code>，就会真正地出现分叉了：</p>
+<pre><code class="hljs shell" lang="shell">git checkout master
+...
+git commit
+</code></pre><p></p><figure><img src="https://user-gold-cdn.xitu.io/2017/11/22/15fe3354ab0861a7?w=462&amp;h=582&amp;f=gif&amp;s=242569"><figcaption></figcaption></figure><p></p>
+<h3 class="heading">删除 branch</h3>
+<p>删除 <code>branch</code> 的方法非常简单：<code>git branch -d 名称</code>。例如要删除 <code>feature1</code> 这个 branch：</p>
+<pre><code class="hljs shell" lang="shell">git branch -d feature1
+</code></pre><p></p><figure><img src="https://user-gold-cdn.xitu.io/2017/11/29/16006b7e3d35fe54?w=474&amp;h=472&amp;f=gif&amp;s=45735"><figcaption></figcaption></figure><p></p>
+<p>需要说明的有两点：</p>
+<ol>
+<li>
+<p><code>HEAD</code> 指向的 <code>branch</code> 不能删除。如果要删除 <code>HEAD</code> 指向的 <code>branch</code>，需要先用 <code>checkout</code> 把 <code>HEAD</code> 指向其他地方。</p>
+</li>
+<li>
+<p>由于 Git 中的 <code>branch</code> 只是一个引用，所以删除 <code>branch</code> 的操作也只会删掉这个引用，并不会删除任何的 <code>commit</code>。（不过如果一个 <code>commit</code> 不在任何一个 <code>branch</code> 的「路径」上，或者换句话说，如果没有任何一个 <code>branch</code> 可以回溯到这条 <code>commit</code>（也许可以称为野生 <code>commit</code>？），那么在一定时间后，它会被 Git 的回收机制删除掉。）</p>
+</li>
+<li>
+<p>出于安全考虑，没有被合并到 <code>master</code> 过的 <code>branch</code> 在删除时会失败（因为怕你误删掉「未完成」的 <code>branch</code> 啊）：</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2017/12/1/1600ff7520c3c1b5?w=550&amp;h=61&amp;f=jpeg&amp;s=32646"><figcaption></figcaption></figure><p></p>
+<p>这种情况如果你确认是要删除这个 <code>branch</code> （例如某个未完成的功能被团队确认永久毙掉了，不再做了），可以把 <code>-d</code> 改成 <code>-D</code>，小写换成大写，就能删除了。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2017/12/1/1600ff91f051d633?w=441&amp;h=45&amp;f=jpeg&amp;s=21344"><figcaption></figcaption></figure><p></p>
+</li>
+</ol>
+<h2 class="heading">「引用」的本质</h2>
+<p>所谓「引用」（reference），其实就是一个个的字符串。这个字符串可以是一个 <code>commit</code> 的 SHA-1 码（例：<code>c08de9a4d8771144cd23986f9f76c4ed729e69b0</code>），也可以是一个 <code>branch</code>（例：<code>ref: refs/heads/feature3</code>）。</p>
+<p>Git 中的 <code>HEAD</code> 和每一个 <code>branch</code> 以及其他的引用，都是以文本文件的形式存储在本地仓库 <code>.git</code> 目录中，而 Git 在工作的时候，就是通过这些文本文件的内容来判断这些所谓的「引用」是指向谁的。</p>
+<h2 class="heading">小结</h2>
+<p>这一节介绍了 Git 中的一些「引用」：<code>HEAD</code>、<code>master</code>、<code>branch</code>。这里总结一下：</p>
+<ol>
+<li><code>HEAD</code> 是指向当前 <code>commit</code> 的引用，它具有唯一性，每个仓库中只有一个 <code>HEAD</code>。在每次提交时它都会自动向前移动到最新的 <code>commit</code> 。</li>
+<li><code>branch</code> 是一类引用。<code>HEAD</code> 除了直接指向 <code>commit</code>，也可以通过指向某个 <code>branch</code> 来间接指向 <code>commit</code>。当 <code>HEAD</code> 指向一个 <code>branch</code> 时，<code>commit</code> 发生时，<code>HEAD</code> 会带着它所指向的 <code>branch</code> 一起移动。</li>
+<li><code>master</code> 是 Git 中的默认 <code>branch</code>，它和其它 <code>branch</code> 的区别在于：
+<ol>
+<li>新建的仓库中的第一个 <code>commit</code> 会被 <code>master</code> 自动指向；</li>
+<li>在 <code>git clone</code> 时，会自动 <code>checkout</code> 出 <code>master</code>。</li>
+</ol>
+</li>
+<li><code>branch</code> 的创建、切换和删除：
+<ol>
+<li>创建 <code>branch</code> 的方式是 <code>git branch 名称</code> 或 <code>git checkout -b 名称</code>（创建后自动切换）；</li>
+<li>切换的方式是 <code>git checkout 名称</code>；</li>
+<li>删除的方式是 <code>git branch -d 名称</code>。</li>
+</ol>
+</li>
+</ol>

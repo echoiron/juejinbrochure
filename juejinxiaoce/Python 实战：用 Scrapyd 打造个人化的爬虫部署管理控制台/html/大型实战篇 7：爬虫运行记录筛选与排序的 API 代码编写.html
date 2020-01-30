@@ -1,0 +1,351 @@
+<h1 class="heading">爬虫运行记录筛选与排序的 API 代码编写</h1>
+<p>我们在上一个小节编写了几个常用的 API ，并且它们的渲染方法都是 render_GET。接下来让我们来尝试使用 render_POST 方法编写功能更为复杂的 API 。</p>
+<h2 class="heading">编写 API-爬虫运行记录筛选过滤功能(POST)</h2>
+<blockquote>
+<p>功能需求场景</p>
+</blockquote>
+<p>爬虫已经运行了几个月，积累了超过 10000 条运行记录。最近你发现爬虫<code>tips</code>的数据结果异常，你希望通过查看日志来查找原因，但在 10000 条记录中依次寻找<code>tips</code>的记录是不现实的，这个时候你需要一个过滤功能，帮助你将<code>tips</code>爬虫的日志找出来。</p>
+<blockquote>
+<p>实现逻辑</p>
+</blockquote>
+<p>在此之前的几个 API 都是基于 website.py 改造时编写的功能做的，并且都是 GET 请求方式，下面的 API 选择了 POST 的请求方式。</p>
+<p>由于筛选过滤功能条件较多，所以整个 API 实现过程比较抽象。</p>
+<p>这里先来看这个 API 所需要实现的功能：</p>
+<ul>
+<li>支持按<code>时间范围</code>对爬虫运行记录进行筛选过滤</li>
+<li>支持按<code>爬虫名称</code>对爬虫运行记录进行筛选过滤</li>
+<li>支持按<code>项目名称</code>对爬虫运行记录进行筛选过滤</li>
+<li>支持按<code>运行时长</code>对爬虫运行记录进行筛选过滤</li>
+<li>可指定结果集长度</li>
+</ul>
+<p>对于可指定结果集长度，上面的 API 已经通过传入 index 参数结合切片实现了，那么要按照几个不同类型的属性对爬虫运行记录进行筛选过滤应该怎么设计呢？</p>
+<ul>
+<li>首先应该想到的是，通过一个参数来区分这集中不同的属性</li>
+<li>然后根据区分出来的属性，设定不同的参数</li>
+<li>再在具体的方法中校验参数</li>
+<li>如果参数通过校验则进行处理并返回结果集，如果不通过则返回提示信息</li>
+</ul>
+<p>有一点思路了，但不是很清晰，那我们来画个图：</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/10/15/1667723c790c7a9b?w=1424&amp;h=1096&amp;f=png&amp;s=72333"><figcaption></figcaption></figure><p></p>
+<p>有了流程图，再配合设计思路，就可以开始编码了。</p>
+<p>首先编写类的基本结构：</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">Filter</span><span class="hljs-params">(WsResource)</span>:</span>
+<span class="hljs-meta">    @decorator_auth</span>
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">render_POST</span><span class="hljs-params">(self, request)</span>:</span>
+        <span class="hljs-keyword">pass</span>
+</code></pre><p>然后拿到所有的爬虫运行记录对象：</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">render_POST</span><span class="hljs-params">(self, request)</span>:</span>
+        +finishes = self.root.launcher.finished
+</code></pre><p>接着定义允许的几种过滤类型及对应的方法：</p>
+<pre><code class="hljs Python" lang="Python">    +<span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">_filter_time</span><span class="hljs-params">(self)</span>:</span>
+        <span class="hljs-keyword">pass</span>
+
+    +<span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">_filter_project</span><span class="hljs-params">(self)</span>:</span>
+        <span class="hljs-keyword">pass</span>
+
+    +<span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">_filter_spider</span><span class="hljs-params">(self)</span>:</span>
+        <span class="hljs-keyword">pass</span>
+
+    +<span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">_filter_runtime</span><span class="hljs-params">(self)</span>:</span>
+        <span class="hljs-keyword">pass</span>
+        
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">render_POST</span><span class="hljs-params">(self, request)</span>:</span>
+            finishes = self.root.launcher.finished
+            +types_func = {<span class="hljs-string">"time"</span>: self._filter_time, <span class="hljs-string">"project"</span>: self._filter_project,
+            <span class="hljs-string">"spider"</span>: self._filter_spider, <span class="hljs-string">"runtime"</span>: self._filter_runtime}
+</code></pre><p>对于传入的这些参数，是需要校验的，比如传入的 index 值必须为 int 类型，在 webtools.py 中定义一个函数：</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">valid_index</span><span class="hljs-params">(request, arg, ins=None, default=<span class="hljs-number">0</span>)</span>:</span>
+    _ins = {<span class="hljs-string">"str"</span>: str, <span class="hljs-string">"int"</span>: int, <span class="hljs-string">"float"</span>: float, <span class="hljs-string">"list"</span>: list, <span class="hljs-string">"tuple"</span>: tuple, <span class="hljs-string">"dict"</span>: dict, <span class="hljs-string">"set"</span>: set}
+    <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> isinstance(arg, str):
+        <span class="hljs-keyword">return</span> default
+    args = native_stringify_dict(copy(request.args), keys_only=<span class="hljs-keyword">False</span>)
+    <span class="hljs-keyword">try</span>:
+        value = args[arg][<span class="hljs-number">0</span>]
+        <span class="hljs-keyword">if</span> ins <span class="hljs-keyword">not</span> <span class="hljs-keyword">in</span> _ins.keys():
+            <span class="hljs-keyword">return</span> default
+        ins_type = _ins.get(ins)
+        <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> isinstance(value, ins_type):
+            <span class="hljs-keyword">try</span>:
+                <span class="hljs-keyword">return</span> ins_type(value)
+            <span class="hljs-keyword">except</span> Exception <span class="hljs-keyword">as</span> err:
+                logging.info(err)
+                <span class="hljs-keyword">return</span> default
+        <span class="hljs-keyword">return</span> default
+    <span class="hljs-keyword">except</span>:
+        <span class="hljs-keyword">return</span> default
+</code></pre><ul>
+<li>先申明允许传入的参数类型</li>
+<li>通过 isinstance 过滤掉不为 str 的参数值</li>
+<li>使用 Scrapyd 中原有的 <code>native_stringify_dict</code> 获取 arg 集合</li>
+<li>判断 ins 是否在预先声明的参数类型中，如果不在则将值返回，如果在则往下执行</li>
+<li>获取参数类型并复制给 ins_type</li>
+<li>判断 value 的类型是否为取到的 <code>ins_type</code>，如果不是则返回默认值 10，如果不是则尝试返回 ins_type(value)，假如产生异常则返回默认值。</li>
+</ul>
+<p>使用这个函数，可以对传入参数及传入的参数数据类型做校验，可能你还有点迷茫，请先继续往下看。此时在 webservice.py 中引入 valid_index</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-comment"># webservice&amp;#46;py</span>
+<span class="hljs-keyword">from</span> .webtools <span class="hljs-keyword">import</span> valid_index
+</code></pre><p>这里要对传入的 index 进行校验：</p>
+<pre><code class="hljs Python" lang="Python">index = int(valid_index(request=request, arg=<span class="hljs-string">"index"</span>, ins=<span class="hljs-string">"int"</span>, default=<span class="hljs-number">10</span>))
+</code></pre><p>使用时指定 arg 为 index，并且将数据类型设置为 int，再为其设置默认值。这个时候，再来看  valid_index 就清晰一些了：</p>
+<ul>
+<li>首先校验<code>arg</code>是否为<code>str</code>，这里的 arg 值为<code>index</code>那自然是通过的，进入下一步</li>
+<li>第二步取出 request 请求时携带的参数</li>
+<li>第三步尝试取出请求参数中的<code>index</code>参数的值，赋值给 value</li>
+<li>接下来判断指定的数据类型<code>int</code>是否在预设的数据类型范围内</li>
+<li>然后从预设数据类型范围内取出数据类型</li>
+<li>判断 value 的数据类型是否是指定的<code>int</code>类型</li>
+<li>最后将其类型进行强制转换，这里可以理解为 int(value)，确保了返回的值一定是指定的数据类型。</li>
+<li>其中只要任何一个地方无法满足判断条件，都会将 default 返回</li>
+</ul>
+<blockquote>
+<p>对于参数的校验</p>
+</blockquote>
+<p>上面完成了对于请求时携带的参数类型校验，那么还有其他的一些校验呢？比如<code>按时间范围</code>筛选需要提交的参数为<code>起始时间</code>与<code>结束时间</code>，而<code>按爬虫名称</code>筛选则需要传入<code>爬虫名称</code>即可。对于这样多变的参数，应该如何校验和取值呢？</p>
+<p>有了上面那个校验方法的编写经验，我们知道可以通过<strong>预设</strong>来进行限定。在 webtools.py 中新建函数：</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">valid_args</span><span class="hljs-params">(request, arg, default={})</span>:</span>
+    _types = {<span class="hljs-string">"time"</span>: [<span class="hljs-string">"st"</span>, <span class="hljs-string">"et"</span>], <span class="hljs-string">"project"</span>: [<span class="hljs-string">"project"</span>], <span class="hljs-string">"spider"</span>: [<span class="hljs-string">"spider"</span>],
+              <span class="hljs-string">"runtime"</span>: [<span class="hljs-string">"runtime"</span>], <span class="hljs-string">"order"</span>: [<span class="hljs-string">"order"</span>]}
+    <span class="hljs-keyword">if</span> isinstance(arg, str):
+        args = native_stringify_dict(copy(request.args), keys_only=<span class="hljs-keyword">False</span>)
+        <span class="hljs-keyword">try</span>:
+            type_name = args[arg][<span class="hljs-number">0</span>]
+            <span class="hljs-keyword">if</span> type_name <span class="hljs-keyword">not</span> <span class="hljs-keyword">in</span> _types.keys():
+                <span class="hljs-keyword">return</span> default
+            <span class="hljs-keyword">try</span>:
+                values = _types.get(type_name)
+                params = [args[i][<span class="hljs-number">0</span>] <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> values]
+                res = dict(zip(values, params))
+                res[<span class="hljs-string">"type"</span>] = type_name
+                <span class="hljs-keyword">return</span> res
+            <span class="hljs-keyword">except</span> Exception <span class="hljs-keyword">as</span> err:
+                logging.info(err)
+                <span class="hljs-keyword">return</span> default
+        <span class="hljs-keyword">except</span> Exception <span class="hljs-keyword">as</span> err:
+            logging.info(err)
+            <span class="hljs-keyword">return</span> default
+    <span class="hljs-keyword">return</span> default
+</code></pre><p>暂且先不用理解它的逻辑，在使用的时候再带着具体的参数过来一步步理解。</p>
+<p>到 webservice.py 中将其引入：</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-comment"># webservice&amp;#46;py</span>
+<span class="hljs-keyword">from</span> .webtools <span class="hljs-keyword">import</span> valid_args
+</code></pre><p>然后在 Filter 类中使用它：</p>
+<pre><code class="hljs bash" lang="bash">filter_params = valid_args(request=request, arg=<span class="hljs-string">"type"</span>)
+</code></pre><blockquote>
+<p>带着参数回顾 valid_args</p>
+</blockquote>
+<p>调用<code>valid_args</code>函数，传入的<code>arg</code>参数为<code>"type"</code>，将结果赋值给 <code>filter_params</code>，现在进入<code>valid_args</code>中，看看它的运行流程：</p>
+<ul>
+<li>首先校验传递的 arg 参数值类型，如果为 str 则向下执行</li>
+<li>尝试从 request 请求参数中取出<code>type</code>参数对应的值</li>
+<li>判断值是否在预设的类型中，即<code>_types</code>的 keys()，如果在则向下执行</li>
+<li>根据类型值从预设字典中取出对应的参数，如"time": ["st", "et"]中 time 为类型，"st"和"et"为对应参数。</li>
+<li>再从 request 中取出对应参数的值，并将类型与参数值生成新的字典并返回</li>
+<li>其中任何一处未通过判断，或者执行期间产生异常，都将默认值返回</li>
+</ul>
+<p>拿到返回值后如何使用它呢？在 Filter 类的 render_POST 中继续增加代码：</p>
+<pre><code class="hljs Python" lang="Python">filter_type = filter_params.get(<span class="hljs-string">"type"</span>)
+<span class="hljs-keyword">if</span> filter_type <span class="hljs-keyword">in</span> types_func.keys():
+    funcs = types_func.get(filter_type)
+    <span class="hljs-keyword">if</span> funcs:
+        spiders = funcs(filter_params=filter_params, finishes=finishes, request=request, index=index)
+        <span class="hljs-keyword">return</span> {<span class="hljs-string">"node_name"</span>: self.root.nodename, <span class="hljs-string">"status"</span>: <span class="hljs-string">"ok"</span>, <span class="hljs-string">"spider"</span>: spiders}
+<span class="hljs-keyword">return</span> {<span class="hljs-string">"node_name"</span>: self.root.nodename, <span class="hljs-string">"status"</span>: <span class="hljs-string">"error"</span>, <span class="hljs-string">"message"</span>: <span class="hljs-string">"query parameter error"</span>}
+</code></pre><ul>
+<li>从返回值中取出<code>type</code>并判断其是否在预设的类型中，如果在则取出预设类型对应的处理方法</li>
+<li>将所需的参数传递给预设类型对应的处理方法（此时并不确定具体是哪个方法，所以参数在设计时要考虑周全，笔者在设计时由于需求的不同，反复的修改过参数）。</li>
+<li>方法执行完毕后将结果返回，这边用<code>spiders</code>变量接收</li>
+<li>最后将结果以 json 格式返回，交给页面渲染</li>
+<li>如果在类型取值时无法取到值，则返回参数错误的提示</li>
+</ul>
+<blockquote>
+<p>具体的筛选过滤方法</p>
+</blockquote>
+<p>预设中制定了几个具体的方法，它们根据传入的参数对爬虫运行记录进行筛选过滤，那么它们是如何设计和处理的呢？</p>
+<pre><code class="hljs bash" lang="bash">def _filter_time(self, filter_params, finishes, request, index, default=[]):
+    <span class="hljs-keyword">if</span> not valid_params(filter_params):
+            <span class="hljs-built_in">return</span> default
+    res = valid_date(filter_params.get(<span class="hljs-string">"st"</span>), filter_params.get(<span class="hljs-string">"et"</span>))
+    <span class="hljs-keyword">if</span> not res:
+        <span class="hljs-built_in">return</span> default
+    st, et = res
+    spiders = [spider_dict(i) <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> finishes <span class="hljs-keyword">if</span> (i.start_time - st).days &gt;= 0 and (et - i.start_time).days &gt;= 0][:index]
+    <span class="hljs-built_in">return</span> spiders
+</code></pre><p>这里以<code>_filter_time</code>方法为例，它对应的过滤类型是<code>time</code>即<code>按时间范围</code>筛选。</p>
+<ul>
+<li>首先它需要校验传入的 <code>filter_params</code> 类型与长度，这里通过<code>valid_params</code>实现，<code>valid_params</code>代码为：</li>
+</ul>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">valid_params</span><span class="hljs-params">(filter_params)</span>:</span>
+    <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> isinstance(filter_params, dict):
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">False</span>
+    <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> len(filter_params):
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">False</span>
+    <span class="hljs-keyword">return</span> <span class="hljs-keyword">True</span>
+</code></pre><p>返回布尔值。</p>
+<ul>
+<li>而后取出<code>st</code>和<code>et</code>的值并进行校验，主要是确保起始时间与结束时间的时间格式，然后确保结束时间要比起始时间的值要大，所以对于时间的校验也需要在 webtools.py 中新增时间校验方法 valid_date:</li>
+</ul>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">valid_date</span><span class="hljs-params">(start, end, half=<span class="hljs-string">"%Y-%m-%d %X"</span>)</span>:</span>
+    <span class="hljs-string">""" 校验时间格式，如果错误则返回False，如果正确则返回格式化后的时间字符串 """</span>
+    <span class="hljs-keyword">try</span>:
+        start_time, end_time = datetime.strptime(start, half), datetime.strptime(end, half)
+        days = (end_time - start_time).days
+        <span class="hljs-keyword">if</span> days &lt; <span class="hljs-number">0</span>:
+            <span class="hljs-keyword">return</span> <span class="hljs-keyword">False</span>
+        <span class="hljs-keyword">return</span> start_time, end_time
+    <span class="hljs-keyword">except</span> Exception <span class="hljs-keyword">as</span> err:
+        logging.info(err)
+    <span class="hljs-keyword">return</span> <span class="hljs-keyword">False</span>
+</code></pre><ul>
+<li>传入的参数类型及正确性通过校验后，即可在爬虫运行记录中进行筛选。已知爬虫运行记录是一个列表对象，所以这里可以通过 for 循环的方式完成记录的筛选、切片与重组。</li>
+</ul>
+<pre><code class="hljs Python" lang="Python">spider_list = []
+<span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> finishes:
+    <span class="hljs-keyword">if</span> (i.start_time - st).days &gt;= <span class="hljs-number">0</span> <span class="hljs-keyword">and</span> (et - i.start_time).days &gt;= <span class="hljs-number">0</span>
+    spider_list.append(spider_dict(i))
+spiders = spider_list[:index]
+</code></pre><p>对于 for 循环，笔者习惯于用列表推导式的方式，可以很简短的完成：</p>
+<pre><code class="hljs Python" lang="Python">spiders = [spider_dict(i) <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> finishes <span class="hljs-keyword">if</span> (i.start_time - st).days &gt;= <span class="hljs-number">0</span> <span class="hljs-keyword">and</span> (et - i.start_time).days &gt;= <span class="hljs-number">0</span>][:index]
+</code></pre><h2 class="heading">你的考验</h2>
+<p>上面通过需求分析、代码逻辑整理、绘制流程图以及代码编写及运行流程分析完成了Filter大部分功能的编写，并且以 <code>_filter_time</code> 作为例子，演示了如何完成爬虫运行记录的过滤筛选。编程光看还不够，还需要动脑思考、动手实践，所以剩下的<code>_filter_project</code>、<code>_filter_spider</code>、<code>_filter_runtime</code>就交给你来实现。</p>
+<p>记得，编写完成后要到配置文件中为 Filter 添加路由映射</p>
+<p>自然，笔者已经编写好对应的代码: <a target="_blank" href="https://github.com/dequinns/ScrapydArt/blob/master/scrapydart/webservice.py">Filter</a>，但笔者希望你亲身实践过后，再来看这部分的代码，这对你更有帮助。</p>
+<h2 class="heading">Filter 筛选效果演示</h2>
+<p>首先，在编写完代码后启动 ScrapydArt，通过 Postman 工具向 ScrapydArt 上的爬虫发起调用。基于爬虫运行的结果记录，再做测试：</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/10/16/1667abe43f8be63f?w=1740&amp;h=626&amp;f=png&amp;s=119992"><figcaption></figcaption></figure>
+上图为当前爬虫运行记录，共有 12条，时间范围在<code>2018-10-16 10:33:12</code>~<code>2018-10-16 10:34:17</code>之间，下面的测试都将基于此记录。<p></p>
+<blockquote>
+<p>根据指定的时间范围进行过滤</p>
+</blockquote>
+<p>这里笔者使用 Postman 工具对 Filter 进行筛选，可以直接在 URL 栏输入所有的请求参数：</p>
+<pre><code class="hljs url" lang="url">http://localhost:6800/filter.json?un=qu&amp;pwd=qus7&amp;type=time&amp;st=2018-10-16%2010:33:00&amp;et=2018-10-16%2010:33:45
+</code></pre><p>（备注：按时间范围过滤代码在编写时，指定的判断元素为 <code>start_time</code>，所以结果集也是根据爬虫的 <code>start_time</code> 进行过滤后得到的）</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/10/16/1667ac4f518bdfd1?w=1019&amp;h=736&amp;f=gif&amp;s=154857"><figcaption></figcaption></figure>
+得到的结果为：<p></p>
+<pre><code class="hljs json" lang="json">{
+    <span class="hljs-attr">"node_name"</span>: <span class="hljs-string">"gannicus-PC"</span>,
+    <span class="hljs-attr">"status"</span>: <span class="hljs-string">"ok"</span>,
+    <span class="hljs-attr">"spider"</span>: [
+        {
+            <span class="hljs-attr">"start_time"</span>: <span class="hljs-string">"2018-10-16 10:33:12"</span>,
+            <span class="hljs-attr">"end_time"</span>: <span class="hljs-string">"2018-10-16 10:33:30"</span>,
+            <span class="hljs-attr">"runtime"</span>: <span class="hljs-string">"0:00:17.848460"</span>,
+            <span class="hljs-attr">"project"</span>: <span class="hljs-string">"arts"</span>,
+            <span class="hljs-attr">"spider"</span>: <span class="hljs-string">"tips"</span>,
+            <span class="hljs-attr">"logs"</span>: <span class="hljs-string">"logs/arts/tips/d1edca42d0eb11e8825c54ee75c0e204.log"</span>
+        },
+        {
+            <span class="hljs-attr">"start_time"</span>: <span class="hljs-string">"2018-10-16 10:33:27"</span>,
+            <span class="hljs-attr">"end_time"</span>: <span class="hljs-string">"2018-10-16 10:33:34"</span>,
+            <span class="hljs-attr">"runtime"</span>: <span class="hljs-string">"0:00:07.225114"</span>,
+            <span class="hljs-attr">"project"</span>: <span class="hljs-string">"Fabias"</span>,
+            <span class="hljs-attr">"spider"</span>: <span class="hljs-string">"fabias"</span>,
+            <span class="hljs-attr">"logs"</span>: <span class="hljs-string">"logs/Fabias/fabias/d9f34884d0eb11e8825c54ee75c0e204.log"</span>
+        },
+        {
+            <span class="hljs-attr">"start_time"</span>: <span class="hljs-string">"2018-10-16 10:33:32"</span>,
+            <span class="hljs-attr">"end_time"</span>: <span class="hljs-string">"2018-10-16 10:33:39"</span>,
+            <span class="hljs-attr">"runtime"</span>: <span class="hljs-string">"0:00:07.151288"</span>,
+            <span class="hljs-attr">"project"</span>: <span class="hljs-string">"Fabias"</span>,
+            <span class="hljs-attr">"spider"</span>: <span class="hljs-string">"fabias"</span>,
+            <span class="hljs-attr">"logs"</span>: <span class="hljs-string">"logs/Fabias/fabias/da66a54ad0eb11e8825c54ee75c0e204.log"</span>
+        },
+        {
+            <span class="hljs-attr">"start_time"</span>: <span class="hljs-string">"2018-10-16 10:33:37"</span>,
+            <span class="hljs-attr">"end_time"</span>: <span class="hljs-string">"2018-10-16 10:33:58"</span>,
+            <span class="hljs-attr">"runtime"</span>: <span class="hljs-string">"0:00:21.086578"</span>,
+            <span class="hljs-attr">"project"</span>: <span class="hljs-string">"Fabias"</span>,
+            <span class="hljs-attr">"spider"</span>: <span class="hljs-string">"players"</span>,
+            <span class="hljs-attr">"logs"</span>: <span class="hljs-string">"logs/Fabias/players/dde33972d0eb11e8825c54ee75c0e204.log"</span>
+        },
+        {
+            <span class="hljs-attr">"start_time"</span>: <span class="hljs-string">"2018-10-16 10:33:42"</span>,
+            <span class="hljs-attr">"end_time"</span>: <span class="hljs-string">"2018-10-16 10:34:04"</span>,
+            <span class="hljs-attr">"runtime"</span>: <span class="hljs-string">"0:00:21.447053"</span>,
+            <span class="hljs-attr">"project"</span>: <span class="hljs-string">"Fabias"</span>,
+            <span class="hljs-attr">"spider"</span>: <span class="hljs-string">"players"</span>,
+            <span class="hljs-attr">"logs"</span>: <span class="hljs-string">"logs/Fabias/players/de740a2ed0eb11e8825c54ee75c0e204.log"</span>
+        }
+    ]
+}
+</code></pre><p>总记录有 12 条，这里按时间范围筛选出来的结果数量为 5，从数量上看应该是没有出问题的。那么来仔细的比对一下每条记录中的<code>start_time</code>是否在指定的时间范围内？</p>
+<p>确认了一下，这 5 条记录中的<code>strat_time</code>从<code>2018-10-16 10:33:12</code>到<code>2018-10-16 10:33:42</code>，全都是属于指定的范围内，说明这个功能已经可以正常使用了。</p>
+<blockquote>
+<p>根据指定的项目名称进行过滤</p>
+</blockquote>
+<p>请求的 URL 为：</p>
+<pre><code class="hljs url" lang="url">http://localhost:6800/filter.json?un=qu&amp;pwd=qus7&amp;type=project&amp;project=arts
+
+http://localhost:6800/filter.json?un=qu&amp;pwd=qus7&amp;type=project&amp;project=Fabias
+</code></pre><p>笔者将用这两个不同的项目名称发出请求：</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/10/16/1667aca84676c4ad?w=1022&amp;h=764&amp;f=gif&amp;s=272771"><figcaption></figcaption></figure>
+从 GIF 动图中可以看到，返回的结果集也是符合要求的，会根据指定的<code>project</code>名称筛选出对应的爬虫记录。<p></p>
+<blockquote>
+<p>根据指定的爬虫名称进行过滤</p>
+</blockquote>
+<p>请求的 URL 为：</p>
+<pre><code class="hljs url" lang="url">http://localhost:6800/filter.json?un=qu&amp;pwd=qus7&amp;type=spider&amp;spider=tips
+
+http://localhost:6800/filter.json?un=qu&amp;pwd=qus7&amp;type=spider&amp;spider=quinns
+</code></pre><p>笔者将用这两个不同的爬虫名称发出请求</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/10/16/1667acd6193734f3?w=1024&amp;h=762&amp;f=gif&amp;s=319217"><figcaption></figcaption></figure>
+从 GIF 动图中可以看到，返回的结果集也是符合要求的，会根据指定的<code>spider</code>名称筛选出对应的爬虫记录。<p></p>
+<blockquote>
+<p>根据指定的运行时长进行筛选</p>
+</blockquote>
+<p>请求的 URL 为：</p>
+<pre><code class="hljs url" lang="url">http://localhost:6800/filter.json?un=qu&amp;pwd=qus7&amp;type=runtime&amp;runtime=5&amp;compare=less
+
+http://localhost:6800/filter.json?un=qu&amp;pwd=qus7&amp;type=runtime&amp;runtime=5&amp;compare=greater
+</code></pre><p>其中的 less 代表小于，即筛选运行时长小于 5秒的记录;greater 代表大于，即筛选运行时长大于 5秒的记录。</p>
+<p>笔者将用这两个不同的 URL 发出请求
+</p><figure><img src="https://user-gold-cdn.xitu.io/2018/10/16/1667ad6f8f42ca80?w=1016&amp;h=757&amp;f=gif&amp;s=342540"><figcaption></figcaption></figure>
+从 GIF 动图中可以看到，返回的结果集也是符合要求的，会根据指定的<code>compare</code>参数筛选出对应的爬虫记录。<p></p>
+<h2 class="heading">编写 API-爬虫运行记录排序(POST)</h2>
+<p>这个排序的功能就很简单明了：<code>可选升降序</code>、<code>可指定排序结果长度</code>、<code>可指定排序元素</code>。这里列出实现逻辑：</p>
+<ul>
+<li>从 request 中获取请求参数</li>
+<li>对请求参数进行校验</li>
+<li>预设不同参数的处理方法</li>
+<li>将结果集按照 index 进行切片
+其中的获取请求参数、校验、预设、切片都已经在编写 Filter 的时候完成了，可以直接拿来使用，所以整个 Order 的代码为：</li>
+</ul>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">Order</span><span class="hljs-params">(WsResource)</span>:</span>
+
+<span class="hljs-meta">    @decorator_auth</span>
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">render_POST</span><span class="hljs-params">(self, request)</span>:</span>
+        <span class="hljs-string">""" 根据传入的参数不同，对爬虫运行记录进行排序
+        目前支持按启动时间、按结束时间、按项目名称、按爬虫名称以及运行时长进行筛选过滤，index默认10
+        计算并取出排序对应参数以及index参数，并对其进行校验
+        根据index进行切片
+        :return 符合名称的爬虫信息列表 [{}, {}]
+        """</span>
+        finishes = self.root.launcher.finished
+        orders = {
+            <span class="hljs-string">"start_time"</span>: <span class="hljs-keyword">lambda</span> x: x.start_time, <span class="hljs-string">"end_time"</span>: <span class="hljs-keyword">lambda</span> x: x.end_time,
+            <span class="hljs-string">"spider"</span>: <span class="hljs-keyword">lambda</span> x: x.spider, <span class="hljs-string">"project"</span>: <span class="hljs-keyword">lambda</span> x: x.project,
+            <span class="hljs-string">"runtime"</span>: <span class="hljs-keyword">lambda</span> x: x.end_time-x.start_time
+        }
+        index = int(valid_index(request=request, arg=<span class="hljs-string">"index"</span>, ins=<span class="hljs-string">"int"</span>, default=<span class="hljs-number">10</span>))
+        params = valid_args(request=request, arg=<span class="hljs-string">"type"</span>)
+        order_key = params.get(params.get(<span class="hljs-string">"type"</span>))
+        reverse_param = int(valid_index(request=request, arg=<span class="hljs-string">"reverse"</span>, ins=<span class="hljs-string">"int"</span>, default=<span class="hljs-number">0</span>))
+        <span class="hljs-keyword">if</span> order_key <span class="hljs-keyword">not</span> <span class="hljs-keyword">in</span> orders.keys() <span class="hljs-keyword">or</span> reverse_param <span class="hljs-keyword">not</span> <span class="hljs-keyword">in</span> [<span class="hljs-number">0</span>, <span class="hljs-number">1</span>]:
+            <span class="hljs-keyword">return</span> {<span class="hljs-string">"node_name"</span>: self.root.nodename, <span class="hljs-string">"status"</span>: <span class="hljs-string">"error"</span>, <span class="hljs-string">"message"</span>: <span class="hljs-string">"query parameter error"</span>}
+        ordered = sorted(finishes, key=orders.get(order_key), reverse=reverse_param)
+        spiders = [spider_dict(i) <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> ordered[:index]]
+        <span class="hljs-keyword">return</span> {<span class="hljs-string">"node_name"</span>: self.root.nodename, <span class="hljs-string">"status"</span>: <span class="hljs-string">"ok"</span>, <span class="hljs-string">"spider"</span>: spiders}
+</code></pre><p>代码编写完后记得到配置文件中添加路由映射。</p>
+<p>代码的执行流程与 Filter 也非常相似，这里就留给大家做考验，如果有不明白的地方，可以在留言处提出，笔者会为大家解答的。</p>
+<blockquote>
+<p>排序测试</p>
+</blockquote>
+<p>按运行时长进行排序(默认)：</p>
+<pre><code class="hljs url" lang="url">http://localhost:6800/order.json?un=qu&amp;pwd=qus7&amp;type=order&amp;order=runtime
+</code></pre><p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/10/16/1667aedcf9cad95d?w=1025&amp;h=758&amp;f=gif&amp;s=554958"><figcaption></figcaption></figure><p></p>
+<p>按启动时间进行排序(默认-&gt;降序)：</p>
+<pre><code class="hljs url" lang="url">http://localhost:6800/order.json?un=qu&amp;pwd=qus7&amp;type=order&amp;order=start_time
+
+http://localhost:6800/order.json?un=qu&amp;pwd=qus7&amp;type=order&amp;order=start_time&amp;reverse=1
+</code></pre><p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/10/16/1667af5c693deedb?w=1022&amp;h=759&amp;f=gif&amp;s=445804"><figcaption></figcaption></figure><p></p>
+<p>GIF 动图中展示了升序与降序两种排序方式的请求过程。
+还可以指定其他的排序元素，这里就不一一演示了，大家可以在编写完代码后自己逐一测试，思考一下有没有更好的解决办法或者写法。</p>

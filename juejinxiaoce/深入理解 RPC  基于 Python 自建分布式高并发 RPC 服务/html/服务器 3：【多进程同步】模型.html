@@ -1,0 +1,95 @@
+<h1 class="heading">服务器 3：【多进程同步】模型</h1>
+<p>上节我们完成了一个简单的多线程服务器，可以并发处理多个客户端连接。但是 Python 里多线程使用的并不常见，因为 Python 的 GIL 致使单个进程只能占满一个 CPU 核心，多线程并不能充分利用多核的优势。所以多数 Python 服务器推荐使用多进程模型。我们将使用 Python 内置的 os.fork() 创建子进程。</p>
+<h2 class="heading">os.fork()</h2>
+<p>Python 内置的子进程创建函数，它封装了 glibc 提供的 fork 函数。</p>
+<p>fork 调用将生成一个子进程，所以这个函数会在父子进程同时返回。在父进程的返回结果是一个整数值，这个值是子进程的进程号，父进程可以使用该进程号来控制子进程的运行。fork 在子进程的返回结果是零。如果 fork 返回值小于零，一般意味着操作系统资源不足，无法创建进程。</p>
+<p>我们可以通过 fork 调用的返回值来区分当前的进程是父进程还是子进程。</p>
+<pre><code class="hljs py" lang="py">pid = os.fork()
+<span class="hljs-keyword">if</span> pid &gt; <span class="hljs-number">0</span>:
+    <span class="hljs-comment"># in parent process</span>
+<span class="hljs-keyword">if</span> pid == <span class="hljs-number">0</span>:
+    <span class="hljs-comment"># in child process</span>
+<span class="hljs-keyword">if</span> pid &lt; <span class="hljs-number">0</span>:
+    <span class="hljs-comment"># fork error</span>
+</code></pre><p>子进程创建后，父进程拥有的很多操作系统资源，子进程也会持有。比如套接字和文件描述符，它们本质上都是对操作系统内核对象的一个引用。如果子进程不需要某些引用，一定要即时关闭它，避免操作系统资源得不到释放导致资源泄露。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/5/16/163686aa96c93a39?w=791&amp;h=358&amp;f=png&amp;s=33397"><figcaption></figcaption></figure><p></p>
+<h2 class="heading">多进程同步模型</h2>
+<p>子进程创建容易，销毁难。当子进程退出后，父进程需要使用 waitpid 系统调用收割子进程，否则子进程将成为僵尸进程，僵尸进程会持续占据操作系统的资源直到父进程退出后被 init 进程接管收割后才会消失释放资源。收割子进程的逻辑处理有一定的复杂度，涉及到非常精细的信号控制逻辑。从理解核心重点角度出发，这部分本节就不做详细讲解。</p>
+<pre><code class="hljs py" lang="py"><span class="hljs-comment"># coding: utf8</span>
+<span class="hljs-comment"># multiprocess.py</span>
+
+<span class="hljs-keyword">import</span> os
+<span class="hljs-keyword">import</span> json
+<span class="hljs-keyword">import</span> struct
+<span class="hljs-keyword">import</span> socket
+<span class="hljs-keyword">import</span> multiprocessing
+
+
+<span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">handle_conn</span><span class="hljs-params">(conn, addr, handlers)</span>:</span>
+    <span class="hljs-keyword">print</span> addr, <span class="hljs-string">"comes"</span>
+    <span class="hljs-keyword">while</span> <span class="hljs-keyword">True</span>:
+        length_prefix = conn.recv(<span class="hljs-number">4</span>)
+        <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> length_prefix:
+            <span class="hljs-keyword">print</span> addr, <span class="hljs-string">"bye"</span>
+            conn.close()
+            <span class="hljs-keyword">break</span>
+        length, = struct.unpack(<span class="hljs-string">"I"</span>, length_prefix)
+        body = conn.recv(length)
+        request = json.loads(body)
+        in_ = request[<span class="hljs-string">'in'</span>]
+        params = request[<span class="hljs-string">'params'</span>]
+        <span class="hljs-keyword">print</span> in_, params
+        handler = handlers[in_]
+        handler(conn, params)
+
+
+<span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">loop</span><span class="hljs-params">(sock, handlers)</span>:</span>
+    <span class="hljs-keyword">while</span> <span class="hljs-keyword">True</span>:
+        conn, addr = sock.accept()
+        pid = os.fork()  <span class="hljs-comment"># 好戏在这里，创建子进程处理新连接</span>
+        <span class="hljs-keyword">if</span> pid &lt; <span class="hljs-number">0</span>:  <span class="hljs-comment"># fork error</span>
+            <span class="hljs-keyword">return</span>
+        <span class="hljs-keyword">if</span> pid &gt; <span class="hljs-number">0</span>:  <span class="hljs-comment"># parent process</span>
+            conn.close()  <span class="hljs-comment"># 关闭父进程的客户端套接字引用</span>
+            <span class="hljs-keyword">continue</span>
+        <span class="hljs-keyword">if</span> pid == <span class="hljs-number">0</span>:
+            sock.close()  <span class="hljs-comment"># 关闭子进程的服务器套接字引用</span>
+            handle_conn(conn, addr, handlers)
+            <span class="hljs-keyword">break</span>  <span class="hljs-comment"># 处理完后一定要退出循环，不然子进程也会继续去 accept 连接</span>
+
+
+<span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">ping</span><span class="hljs-params">(conn, params)</span>:</span>
+    send_result(conn, <span class="hljs-string">"pong"</span>, params)
+
+
+<span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">send_result</span><span class="hljs-params">(conn, out, result)</span>:</span>
+    response = json.dumps({<span class="hljs-string">"out"</span>: out, <span class="hljs-string">"result"</span>: result})
+    length_prefix = struct.pack(<span class="hljs-string">"I"</span>, len(response))
+    conn.sendall(length_prefix)
+    conn.sendall(response)
+
+
+<span class="hljs-keyword">if</span> __name__ == <span class="hljs-string">'__main__'</span>:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, <span class="hljs-number">1</span>)
+    sock.bind((<span class="hljs-string">"localhost"</span>, <span class="hljs-number">8080</span>))
+    sock.listen(<span class="hljs-number">1</span>)
+    handlers = {
+        <span class="hljs-string">"ping"</span>: ping
+    }
+    loop(sock, handlers)
+</code></pre><p>注意，我们在子进程里关闭了服务器的套接字，同样在父进程里关闭了客户端的套接字。为什么要这么做呢？</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/7/10/16482e1557af155e?w=1188&amp;h=312&amp;f=png&amp;s=28186"><figcaption></figcaption></figure><p></p>
+<p>因为进程 fork 之后，套接字会复制一份到子进程，这时父子进程将会各有自己的套接字引用指向内核的同一份套接字对象，套接字的引用计数为2。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/7/10/16482e6f7ae7ce4e?w=1134&amp;h=330&amp;f=png&amp;s=38036"><figcaption></figcaption></figure>
+对套接字进程 close，并不是说就是关闭套接字，其本质上只是将内核套接字对象的引用计数减一。只有当引用计数减为零时，才会关闭套接字。<p></p>
+<p>如果没有上述逻辑就会导致服务器套接字引用计数不断增长，同时客户端套接字对象也得不到即时回收，这便是传说中的资源泄露。</p>
+<h2 class="heading">多进程 vs 多线程</h2>
+<p>如果将 IT 服务比喻成工厂的话，多线程就好比同一个工厂的多名工人并行工作。而多进程则是多个工厂同时进行生产。同一个工厂内部的工人之间有很多的工具可以共享，但是跨越了工厂的工人之间就完全隔离了，它们都使用着各自独立的全套资源。</p>
+<h2 class="heading">小结</h2>
+<p>也许很多读者看了这一节会很不适应，尼玛多进程编程第一次遇到啊，从来没见过啊，好神奇啊。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/5/19/16376bab038123fc?w=240&amp;h=215&amp;f=jpeg&amp;s=8255"><figcaption></figcaption></figure><p></p>
+<p>哈，恭喜你们，以后都算见过世面的程序员了。</p>
+<h2 class="heading">练习</h2>
+<p>多线程服务器见过了，多进程服务器也见过了，但是还没见过既是多进程又是多线程的服务器。</p>
+<p>请读者稍加改造，将 RPC 服务改成高大上的「多进程嵌套多线程」服务。是不是更 6 了？</p>

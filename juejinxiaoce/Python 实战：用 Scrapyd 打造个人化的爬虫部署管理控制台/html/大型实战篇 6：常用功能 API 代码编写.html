@@ -1,0 +1,136 @@
+<h1 class="heading">常用功能 API 代码编写</h1>
+<p>本小节我们使用 render_GET 方法来将首页已有的功能编写成 API ，并且在首页已有功能的基础上逐步加大难度，将 API 的功能变得更丰富。</p>
+<h2 class="heading">编写 API-爬虫调用情况(GET)</h2>
+<p>已知<code>get_ps</code>方法可以获取项目名列表和爬虫名列表，且向<code>get_invokes</code>方法传入已结束的爬虫运行记录与爬虫名列表，可以计算出被调用、未被调用与调用次数最多的爬虫及对应次数。</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">ScheduleList</span><span class="hljs-params">(WsResource)</span>:</span>
+<span class="hljs-meta">    @decorator_auth</span>
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">render_GET</span><span class="hljs-params">(self, request)</span>:</span>
+        <span class="hljs-string">"""爬虫调用情况
+        如被调用过的爬虫、未被调用过的爬虫、被调用次数最多的爬虫名称及次数
+        """</span>
+        finishes = self.root.launcher.finished
+        projects, spiders = get_ps(self)  <span class="hljs-comment"># 项目/爬虫列表</span>
+        invoked_spider, un_invoked_spider, most_record = get_invokes(finishes, spiders)  <span class="hljs-comment"># 被调用过/未被调用的爬虫</span>
+        <span class="hljs-keyword">return</span> {<span class="hljs-string">"node_name"</span>: self.root.nodename, <span class="hljs-string">"status"</span>: <span class="hljs-string">"ok"</span>, <span class="hljs-string">"invoked_spider"</span>: list(invoked_spider),
+        <span class="hljs-string">"un_invoked_spider"</span>: list(un_invoked_spider), <span class="hljs-string">"most_record"</span>: most_record}
+</code></pre><p>这样就完成了第一个 API，到配置文件中的<code>service</code>级配置下为其增加路由映射关系：</p>
+<pre><code class="hljs conf" lang="conf">schedulelist.json = scrapyd.webservice.ScheduleList
+</code></pre><p>然后使用浏览器或 Postman 工具对 API 进行测试，演示中笔者使用浏览器：</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/10/15/16676e3503a220fa?w=1708&amp;h=914&amp;f=gif&amp;s=604375"><figcaption></figcaption></figure>
+从演示动图中可以看到，API 已经可以正常使用了，并且返回了正确的数据:<p></p>
+<pre><code class="hljs json" lang="json">{<span class="hljs-attr">"node_name"</span>: <span class="hljs-string">"gannicus-PC"</span>, <span class="hljs-attr">"status"</span>: <span class="hljs-string">"ok"</span>, <span class="hljs-attr">"invoked_spider"</span>: [<span class="hljs-string">"tips"</span>, <span class="hljs-string">"fabias"</span>], <span class="hljs-attr">"un_invoked_spider"</span>: [<span class="hljs-string">"players"</span>, <span class="hljs-string">"quinns"</span>, <span class="hljs-string">"flu_event"</span>, <span class="hljs-string">"flu_teams"</span>], <span class="hljs-attr">"most_record"</span>: [<span class="hljs-string">"fabias"</span>, <span class="hljs-number">2</span>]}
+
+</code></pre><h2 class="heading">编写 API-爬虫运行时长统计(GET)</h2>
+<p>有了 Web 界面重构时编写的功能代码，前面这一些 API 写起来比较轻松</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">RunTimeStats</span><span class="hljs-params">(WsResource)</span>:</span>
+<span class="hljs-meta">    @decorator_auth</span>
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">render_GET</span><span class="hljs-params">(self, request)</span>:</span>
+        <span class="hljs-string">"""爬虫运行时间统计
+        如平均运行时长、最短运行时间、最长运行时间
+        """</span>
+        finishes = self.root.launcher.finished
+        average, shortest, longest = list(map(str, run_time_stats(finishes)))
+        <span class="hljs-keyword">return</span> {<span class="hljs-string">"node_name"</span>: self.root.nodename, <span class="hljs-string">"status"</span>: <span class="hljs-string">"ok"</span>, <span class="hljs-string">"average"</span>: average,
+        <span class="hljs-string">"shortest"</span>: shortest, <span class="hljs-string">"longest"</span>: longest}
+</code></pre><p>增加路由映射：</p>
+<pre><code class="hljs conf" lang="conf">runtimestats.json = scrapyd.webservice.RunTimeStats
+</code></pre><p>使用测试：</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/10/15/16676e861d147de1?w=1713&amp;h=634&amp;f=gif&amp;s=187900"><figcaption></figcaption></figure>
+得到返回数据为：<p></p>
+<pre><code class="hljs json" lang="json">{<span class="hljs-attr">"node_name"</span>: <span class="hljs-string">"gannicus-PC"</span>, <span class="hljs-attr">"status"</span>: <span class="hljs-string">"ok"</span>, <span class="hljs-attr">"average"</span>: <span class="hljs-string">"0:00:08.333333"</span>, <span class="hljs-attr">"shortest"</span>: <span class="hljs-string">"0:00:07"</span>, <span class="hljs-attr">"longest"</span>: <span class="hljs-string">"0:00:11"</span>}
+</code></pre><h2 class="heading">编写 API-项目及爬虫数量统计(GET)</h2>
+<p>依样画葫芦：</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">PsnStats</span><span class="hljs-params">(WsResource)</span>:</span>
+<span class="hljs-meta">    @decorator_auth</span>
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">render_GET</span><span class="hljs-params">(self, request)</span>:</span>
+        <span class="hljs-string">""" 项目及爬虫数量统计,如项目总数、爬虫总数 """</span>
+        project_nums, spider_nums = list(map(len, get_ps(self)))
+        node_name = self.root.nodename
+        <span class="hljs-keyword">return</span> {<span class="hljs-string">"node_name"</span>: node_name, <span class="hljs-string">"status"</span>: <span class="hljs-string">"ok"</span>, <span class="hljs-string">"project_nums"</span>: project_nums, <span class="hljs-string">"spider_nums"</span>: spider_nums}
+</code></pre><p>增加路由映射：</p>
+<pre><code class="hljs conf" lang="conf">psnstats.json = scrapyd.webservice.PsnStats
+</code></pre><p>使用测试：</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/10/15/16676ebfbf6dbe75?w=1711&amp;h=300&amp;f=gif&amp;s=218142"><figcaption></figcaption></figure>
+得到返回数据为：<p></p>
+<pre><code class="hljs json" lang="json">{<span class="hljs-attr">"node_name"</span>: <span class="hljs-string">"gannicus-PC"</span>, <span class="hljs-attr">"status"</span>: <span class="hljs-string">"ok"</span>, <span class="hljs-attr">"project_nums"</span>: <span class="hljs-number">2</span>, <span class="hljs-attr">"spider_nums"</span>: <span class="hljs-number">6</span>}
+</code></pre><h2 class="heading">编写 API-项目与对应爬虫名及爬虫数量(GET)</h2>
+<p>照猫画虎：</p>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">ProSpider</span><span class="hljs-params">(WsResource)</span>:</span>
+<span class="hljs-meta">    @decorator_auth</span>
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">render_GET</span><span class="hljs-params">(self, request)</span>:</span>
+        <span class="hljs-string">""" 项目与对应爬虫名及爬虫数量,如[{"project": i, "spider": "tip, sms", "number": 2}, {……}] """</span>
+        projects, spiders = get_ps(self)  <span class="hljs-comment"># 项目/爬虫列表</span>
+        pro_spider = get_psn(projects)  <span class="hljs-comment"># 项目与对应爬虫</span>
+        <span class="hljs-keyword">return</span> {<span class="hljs-string">"node_name"</span>: self.root.nodename, <span class="hljs-string">"status"</span>: <span class="hljs-string">"ok"</span>, <span class="hljs-string">"pro_spider"</span>: pro_spider}
+</code></pre><p>增加路由映射：</p>
+<pre><code class="hljs conf" lang="conf">prospider.json = scrapyd.webservice.ProSpider
+</code></pre><p>使用测试：</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/10/15/16676ee6043022cd?w=1718&amp;h=593&amp;f=gif&amp;s=166337"><figcaption></figcaption></figure>
+得到返回数据为：<p></p>
+<pre><code class="hljs json" lang="json">{<span class="hljs-attr">"node_name"</span>: <span class="hljs-string">"gannicus-PC"</span>, <span class="hljs-attr">"status"</span>: <span class="hljs-string">"ok"</span>, <span class="hljs-attr">"pro_spider"</span>: [{<span class="hljs-attr">"project"</span>: <span class="hljs-string">"arts"</span>, <span class="hljs-attr">"spider"</span>: <span class="hljs-string">"tips"</span>, <span class="hljs-attr">"number"</span>: <span class="hljs-number">1</span>}, {<span class="hljs-attr">"project"</span>: <span class="hljs-string">"Fabias"</span>, <span class="hljs-attr">"spider"</span>: <span class="hljs-string">"fabias,flu_event,flu_teams,players,quinns"</span>, <span class="hljs-attr">"number"</span>: <span class="hljs-number">5</span>}]}
+
+</code></pre><h2 class="heading">编写API-爬虫运行时长排行 从高到低(GET)</h2>
+<pre><code class="hljs Python" lang="Python">
+<span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">TimeRank</span><span class="hljs-params">(WsResource)</span>:</span>
+    <span class="hljs-string">""" 爬虫运行时长排行,根据index参数进行切片 """</span>
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">time_rank</span><span class="hljs-params">(self, index=<span class="hljs-number">0</span>)</span>:</span>
+        <span class="hljs-string">"""爬虫运行时间排行 从高到低
+        :param index: 排行榜数量 默认返回全部数据，index存在时则切片后返回
+        :return: 按运行时长排序的排行榜数据 [{"time": time, "spider": spider}, {}]
+        """</span>
+        finished = self.root.launcher.finished
+        <span class="hljs-comment"># 由于dict的键不能重复，但时间作为键是必定会重复的，所以这里将列表的index位置与时间组成tuple作为dict的键</span>
+        tps = {(microsec_trunc(f.end_time - f.start_time), i): f.spider <span class="hljs-keyword">for</span> i, f <span class="hljs-keyword">in</span> enumerate(finished)}
+        result = [{<span class="hljs-string">"time"</span>: str(k[<span class="hljs-number">0</span>]), <span class="hljs-string">"spider"</span>: tps[k]} <span class="hljs-keyword">for</span> k <span class="hljs-keyword">in</span> sorted(tps.keys(), reverse=<span class="hljs-keyword">True</span>)]  <span class="hljs-comment"># 已排序</span>
+        ranks = result <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> index <span class="hljs-keyword">else</span> result[:index]
+        <span class="hljs-keyword">return</span> ranks
+
+<span class="hljs-meta">    @decorator_auth</span>
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">render_GET</span><span class="hljs-params">(self, request)</span>:</span>
+        index = int(valid_index(request=request, arg=<span class="hljs-string">"index"</span>, ins=<span class="hljs-string">"int"</span>, default=<span class="hljs-number">10</span>))
+        ranks = self.time_rank(index=index)  <span class="hljs-comment"># 项目/爬虫列表</span>
+        <span class="hljs-keyword">return</span> {<span class="hljs-string">"node_name"</span>: self.root.nodename, <span class="hljs-string">"status"</span>: <span class="hljs-string">"ok"</span>, <span class="hljs-string">"ranks"</span>: ranks}
+</code></pre><p><strong>补充说明</strong>：虽然之前的功能代码已有，但是这个 API 却完成了与之前不同的功能，爬虫运行时长排行的结果数量可以根据参数指定。设定默认的<code>index为 0</code>，<code>result</code>部分将所得结果通过<code>sorted 函数</code>进行排序，最后通过判断是否传入 index 来决定排行的长度。</p>
+<p>增加路由映射：</p>
+<pre><code class="hljs conf" lang="conf">timerank.json = scrapyd.webservice.TimeRank
+</code></pre><p>使用测试：</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/10/15/16676f7ace722e5d?w=1705&amp;h=517&amp;f=gif&amp;s=423780"><figcaption></figcaption></figure>
+当不传入 index 时得到返回数据为：<p></p>
+<pre><code class="hljs json" lang="json">{<span class="hljs-attr">"node_name"</span>: <span class="hljs-string">"gannicus-PC"</span>, <span class="hljs-attr">"status"</span>: <span class="hljs-string">"ok"</span>, <span class="hljs-attr">"ranks"</span>: [{<span class="hljs-attr">"time"</span>: <span class="hljs-string">"0:00:11"</span>, <span class="hljs-attr">"spider"</span>: <span class="hljs-string">"tips"</span>}, {<span class="hljs-attr">"time"</span>: <span class="hljs-string">"0:00:07"</span>, <span class="hljs-attr">"spider"</span>: <span class="hljs-string">"fabias"</span>}, {<span class="hljs-attr">"time"</span>: <span class="hljs-string">"0:00:07"</span>, <span class="hljs-attr">"spider"</span>: <span class="hljs-string">"fabias"</span>}]}
+</code></pre><p>当指定 index=2 时得到返回数据为：</p>
+<pre><code class="hljs json" lang="json">{<span class="hljs-attr">"node_name"</span>: <span class="hljs-string">"gannicus-PC"</span>, <span class="hljs-attr">"status"</span>: <span class="hljs-string">"ok"</span>, <span class="hljs-attr">"ranks"</span>: [{<span class="hljs-attr">"time"</span>: <span class="hljs-string">"0:00:11"</span>, <span class="hljs-attr">"spider"</span>: <span class="hljs-string">"tips"</span>}, {<span class="hljs-attr">"time"</span>: <span class="hljs-string">"0:00:07"</span>, <span class="hljs-attr">"spider"</span>: <span class="hljs-string">"fabias"</span>}]}
+</code></pre><p>对比发现，默认排行长度此时为 3，但指定 index 后返回的结果中排行长度为 2，证明排行结果长度控制的测试也通过了。</p>
+<blockquote>
+<p>你的任务：控制排行的升降序</p>
+</blockquote>
+<p>类似 index 传递参数，可以指定升降序 reverse 为 True 或 False，从而实现升降序的控制，这个任务就交给你了！</p>
+<h2 class="heading">编写 API-爬虫调用次数排行 从高到低(GET)</h2>
+<pre><code class="hljs Python" lang="Python"><span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">InvokeRank</span><span class="hljs-params">(WsResource)</span>:</span>
+    <span class="hljs-string">""" 爬虫被调用次数排行 根据index参数进行切片 """</span>
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">_invoke_rank</span><span class="hljs-params">(self, finishes, index=<span class="hljs-number">10</span>)</span>:</span>
+        <span class="hljs-string">"""获取爬虫被调用次数排行
+        :param: finishes 已运行完毕的爬虫列表
+        :param: spiders 爬虫列表
+        :return: ranks-降序排序的爬虫调用次数列表 [("tip", 3), ()]
+        """</span>
+        invoked_record = Counter(i.spider <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> finishes)
+        ranks = invoked_record.most_common(index) <span class="hljs-keyword">if</span> invoked_record <span class="hljs-keyword">else</span> []
+        <span class="hljs-keyword">return</span> ranks
+
+<span class="hljs-meta">    @decorator_auth</span>
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">render_GET</span><span class="hljs-params">(self, request)</span>:</span>
+        index = int(valid_index(request=request, arg=<span class="hljs-string">"index"</span>, ins=<span class="hljs-string">"int"</span>, default=<span class="hljs-number">10</span>))
+        ranks = self._invoke_rank(self.root.launcher.finished, index=index)  <span class="hljs-comment"># 项目/爬虫列表</span>
+        <span class="hljs-keyword">return</span> {<span class="hljs-string">"node_name"</span>: self.root.nodename, <span class="hljs-string">"status"</span>: <span class="hljs-string">"ok"</span>, <span class="hljs-string">"ranks"</span>: ranks}
+</code></pre><p><strong>补充说明</strong>：上一个 API 可以通过指定 index 的值来限制排行长度，而这个 API 在此基础上新增了排行的默认长度。将 index 的值设置为 0，这样的话假如排行中数量很多，在不指定 index 的情况下它将会使用默认值进行长度取值，有效控制了排行榜的长度。</p>
+<p>增加路由映射：</p>
+<pre><code class="hljs conf" lang="conf">invokerank.json = scrapyd.webservice.InvokeRank
+</code></pre><p>使用测试：</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/10/15/1667704ae6114549?w=1713&amp;h=443&amp;f=gif&amp;s=268689"><figcaption></figcaption></figure>
+当不传入 index 时得到返回数据为：<p></p>
+<pre><code class="hljs json" lang="json">{<span class="hljs-attr">"node_name"</span>: <span class="hljs-string">"gannicus-PC"</span>, <span class="hljs-attr">"status"</span>: <span class="hljs-string">"ok"</span>, <span class="hljs-attr">"ranks"</span>: [[<span class="hljs-string">"fabias"</span>, <span class="hljs-number">3</span>], [<span class="hljs-string">"tips"</span>, <span class="hljs-number">2</span>]]}
+</code></pre><p>当指定 index=1 时得到返回数据为：</p>
+<pre><code class="hljs json" lang="json">{<span class="hljs-attr">"node_name"</span>: <span class="hljs-string">"gannicus-PC"</span>, <span class="hljs-attr">"status"</span>: <span class="hljs-string">"ok"</span>, <span class="hljs-attr">"ranks"</span>: [[<span class="hljs-string">"fabias"</span>, <span class="hljs-number">3</span>]]}
+</code></pre><p>对比发现，默认排行长度此时为 3(小于默认值 10，不被截断)，但指定 index 后返回的结果中排行长度为 1，证明排行结果长度控制的测试也通过了。</p>

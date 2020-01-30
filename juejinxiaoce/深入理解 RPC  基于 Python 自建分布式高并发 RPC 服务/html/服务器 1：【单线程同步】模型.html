@@ -1,0 +1,185 @@
+<h1 class="heading">服务器 1：【单线程同步】模型</h1>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/6/11/163ef471eb6eaeba?w=1704&amp;h=732&amp;f=png&amp;s=147613"><figcaption></figcaption></figure><p></p>
+<p>如上图所示，现在我们开始使用代码来描述 RPC 的服务器模型，从简单变化到复杂，从经典变化到现代。考虑到教学上的简单性，我们使用 Python 语言进行描述，同时为了方便读者理解核心理念，代码不宜过长，对其中不少细节之处做了简化处理，还请读者理解。</p>
+<p>另，如果读者缺少网络编程的基础知识，阅读后续代码可能会有障碍。建议读者先寻找相关的文章补充一下基础知识。</p>
+<h2 class="heading">项目源代码地址</h2>
+<p>本小册的所有实战代码可以在 <a target="_blank" href="https://github.com/pyloque/juejin_rpc_py">Github</a> 上直接下载运行使用。运行代码需要 Linux 或者 Mac 运行环境，如果读者使用的是 Windows，可以考虑使用虚拟机或者安装 Docker。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/6/3/163c484ed0ee0367?w=1052&amp;h=546&amp;f=png&amp;s=62714"><figcaption></figcaption></figure><p></p>
+<p>本节我们会主要讲解以下内容：</p>
+<ul>
+<li>使用三个非常重要的 Python 内置的库，它们分别是 socket、struct 和 json，分别承担 RPC 服务的网络通信功能、字节转换功能和消息序列化功能。</li>
+<li>网络通信的内容是字节序列，消息序列化的目标是将 Python 的数据结构转换成字节序列，而用于界定消息边界的消息长度也是消息的一部分，它需要将 Python 的整形转换成字节数组，这部分工作是由 struct 库来完成。</li>
+</ul>
+<h2 class="heading">socket</h2>
+<p>Python 有内置的网络编程类库，方便用户编写 tcp/udp 相关的代码。两个不同机器的进程需要通信时，可以通过 socket 来传输数据。</p>
+<pre><code class="hljs py" lang="py"><span class="hljs-comment"># 套接字客户端大致 API，参数略</span>
+sock = socket.socket()  <span class="hljs-comment"># 创建一个套接字</span>
+sock.connect()  <span class="hljs-comment"># 连接远程服务器</span>
+sock.recv() <span class="hljs-comment"># 读</span>
+sock.send()  <span class="hljs-comment"># 尽可能地写</span>
+sock.sendall()  <span class="hljs-comment"># 完全写</span>
+sock.close()  <span class="hljs-comment"># 关闭</span>
+</code></pre><p>注意send和sendall方法的区别，在网络状况良好的情况下，这两个方法几乎没有区别。但是需要特别注意的是send方法有可能只会发送了部分内容，它通过返回值来指示实际发出去了多少内容。而sendall方法是对send方法的封装，它考虑了这个情况，如果第一次send方法发送不完全，就会尝试第二次第三次循环发送直到全部内容都发送出去了或者中间出了错误才会返回。后续所有调用我们都会使用sendall方法。</p>
+<pre><code class="hljs py" lang="py"><span class="hljs-comment"># 套接字服务器大致 API，参数略</span>
+sock = socket.socket()  <span class="hljs-comment"># 创建一个服务器套接字</span>
+sock.bind()  <span class="hljs-comment"># 绑定端口</span>
+sock.listen()  <span class="hljs-comment"># 监听连接</span>
+sock.accept()  <span class="hljs-comment"># 接受新连接</span>
+sock.close()  <span class="hljs-comment"># 关闭服务器套接字</span>
+</code></pre><h2 class="heading">struct</h2>
+<p>Python 内置的二进制解码编码库，用于将各种不同的类型的字段编码成二进制字节串。类似于 java 语言的 bytebuffer 可以将各种不同类型的字段内容编码成 byte 数组。我们通过 struct 包将消息的长度整数编码成 byte 数组。</p>
+<pre><code class="hljs py" lang="py">value_in_bytes = struct.pack(<span class="hljs-string">"I"</span>, <span class="hljs-number">1024</span>)  <span class="hljs-comment"># 将一个整数编码成 4 个字节的字符串</span>
+value, = struct.unpack(<span class="hljs-string">"I"</span>, value_in_bytes)  <span class="hljs-comment"># 将一个 4 字节的字符串解码成一个整数</span>
+<span class="hljs-comment"># 注意等号前面有个逗号，这个非常重要，它不是笔误。</span>
+<span class="hljs-comment"># 因为 unpack 返回的是一个列表，它可以将一个很长的字节串解码成一系列的对象。</span>
+<span class="hljs-comment"># value 取这个列表的第一个对象。</span>
+</code></pre><h2 class="heading">json</h2>
+<p>Python 内置的 json 序列化库。它可以将内存的对象序列化成 json 字符串，也可以将字符串反序列化成 Python 对象。它的序列化性能不高，但是使用方便直观。</p>
+<pre><code class="hljs py" lang="py">raw = json.dumps({<span class="hljs-string">"hello"</span>: <span class="hljs-string">"world"</span>})  <span class="hljs-comment"># 序列化</span>
+po = json.loads(raw)  <span class="hljs-comment"># 反序列化</span>
+</code></pre><h2 class="heading">消息协议</h2>
+<p>我们将使用长度前缀法来确定消息边界，消息体使用 json 序列化。</p>
+<p>每个消息都有相应的名称，请求的名称使用 in 字段表示，请求的参数使用 params 字段表示，响应的名称是 out 字段表示，响应的结果用 result 字段表示。</p>
+<p>我们将请求和响应使用 json 序列化成字符串作为消息体，然后通过 Python 内置的 struct 包将消息体的长度整数转成 4 个字节的长度前缀字符串。</p>
+<pre><code class="hljs js" lang="js"><span class="hljs-comment">// 输入</span>
+{
+    <span class="hljs-attr">in</span>: <span class="hljs-string">"ping"</span>,
+    <span class="hljs-attr">params</span>: <span class="hljs-string">"ireader 0"</span>
+}
+
+<span class="hljs-comment">// 输出</span>
+{
+    <span class="hljs-attr">out</span>: <span class="hljs-string">"pong"</span>,
+    <span class="hljs-attr">result</span>: <span class="hljs-string">"ireader 0"</span>
+}
+</code></pre><h2 class="heading">客户端代码</h2>
+<p>后续使用的客户端代码是通用的，它适用于演示所有服务器模型。它的过程就是向服务器连续发送 10 个 RPC 请求，并输出服务器的响应结果。它使用约定的长度前缀法对请求消息进行编码，对响应消息进行解码。如果要演示多个并发客户端进行 RPC 请求，那就启动多个客户端进程。</p>
+<pre><code class="hljs py" lang="py"><span class="hljs-comment"># coding: utf-8</span>
+<span class="hljs-comment"># client.py</span>
+
+<span class="hljs-keyword">import</span> json
+<span class="hljs-keyword">import</span> time
+<span class="hljs-keyword">import</span> struct
+<span class="hljs-keyword">import</span> socket
+
+
+<span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">rpc</span><span class="hljs-params">(sock, in_, params)</span>:</span>
+    request = json.dumps({<span class="hljs-string">"in"</span>: in_, <span class="hljs-string">"params"</span>: params})  <span class="hljs-comment"># 请求消息体</span>
+    length_prefix = struct.pack(<span class="hljs-string">"I"</span>, len(request)) <span class="hljs-comment"># 请求长度前缀</span>
+    sock.sendall(length_prefix)
+    sock.sendall(request)
+    length_prefix = sock.recv(<span class="hljs-number">4</span>)  <span class="hljs-comment"># 响应长度前缀</span>
+    length, = struct.unpack(<span class="hljs-string">"I"</span>, length_prefix)
+    body = sock.recv(length) <span class="hljs-comment"># 响应消息体</span>
+    response = json.loads(body)
+    <span class="hljs-keyword">return</span> response[<span class="hljs-string">"out"</span>], response[<span class="hljs-string">"result"</span>]  <span class="hljs-comment"># 返回响应类型和结果</span>
+
+<span class="hljs-keyword">if</span> __name__ == <span class="hljs-string">'__main__'</span>:
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.connect((<span class="hljs-string">"localhost"</span>, <span class="hljs-number">8080</span>))
+    <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> range(<span class="hljs-number">10</span>): <span class="hljs-comment"># 连续发送 10 个 rpc 请求</span>
+        out, result = rpc(s, <span class="hljs-string">"ping"</span>, <span class="hljs-string">"ireader %d"</span> % i)
+        <span class="hljs-keyword">print</span> out, result
+        time.sleep(<span class="hljs-number">1</span>)  <span class="hljs-comment"># 休眠 1s，便于观察</span>
+    s.close() <span class="hljs-comment"># 关闭连接</span>
+</code></pre><p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/5/16/163680245ad03253?w=777&amp;h=283&amp;f=png&amp;s=17566"><figcaption></figcaption></figure><p></p>
+<p>值得注意的是代码中有两个地方调用了<code>socket.recv</code>方法来读取期望的消息，通过传入一个长度值来获取想要的字节数组。实际上这样使用是不严谨的，甚至根本就是错误的。</p>
+<p><code>socket.recv(int)</code>默认是阻塞调用，不过这个阻塞也是有条件的。如果内核的套接字接收缓存是空的，它才会阻塞。只要里面有哪怕只有一个字节，这个方法就不会阻塞，它会尽可能将接受缓存中的内容带走指定的字节数，然后就立即返回，而不是非要等待期望的字节数全满足了才返回。这意味着我们需要尝试循环读取才能正确地读取到期望的字节数。</p>
+<pre><code class="hljs by" lang="by">def receive(sock, n):
+    rs = []  # 读取的结果
+    while n &gt; 0:
+        r = sock.recv(n)
+        if not r:  # EOF
+            return rs
+        rs.append(r)
+        n -= len(r)
+    return ''.join(rs)
+</code></pre><p>但是为了简单起见，我们后面的章节代码都直接使用socket.recv，在开发环境中网络延迟的情况较少发生，一般来说很少会遇到recv方法一次读不全的情况发生。</p>
+<h2 class="heading">单线程同步模型服务器代码</h2>
+<p>单线程同步模型的服务器是最简单的服务器模型，每次只能处理一个客户端连接，其它连接必须等到前面的连接关闭了才能得到服务器的处理。否则发送过来的请求会悬挂住，没有任何响应，直到前面的连接处理完了才能继续。</p>
+<p>服务器根据 RPC 请求的 in 字段来查找相应的 RPC Handler 进行处理。例子中只展示了 ping 消息的处理器。如果你想支持多种消息，可以在代码中增加更多的处理器函数，并将处理器函数注册到全局的 handlers 字典中。</p>
+<pre><code class="hljs py" lang="py"><span class="hljs-comment"># coding: utf8</span>
+<span class="hljs-comment"># blocking_single.py</span>
+
+<span class="hljs-keyword">import</span> json
+<span class="hljs-keyword">import</span> struct
+<span class="hljs-keyword">import</span> socket
+
+
+<span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">handle_conn</span><span class="hljs-params">(conn, addr, handlers)</span>:</span>
+    <span class="hljs-keyword">print</span> addr, <span class="hljs-string">"comes"</span>
+    <span class="hljs-keyword">while</span> <span class="hljs-keyword">True</span>:  <span class="hljs-comment"># 循环读写</span>
+        length_prefix = conn.recv(<span class="hljs-number">4</span>)  <span class="hljs-comment"># 请求长度前缀</span>
+        <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> length_prefix:  <span class="hljs-comment"># 连接关闭了</span>
+            <span class="hljs-keyword">print</span> addr, <span class="hljs-string">"bye"</span>
+            conn.close()
+            <span class="hljs-keyword">break</span>  <span class="hljs-comment"># 退出循环，处理下一个连接</span>
+        length, = struct.unpack(<span class="hljs-string">"I"</span>, length_prefix)
+        body = conn.recv(length)  <span class="hljs-comment"># 请求消息体  </span>
+        request = json.loads(body)
+        in_ = request[<span class="hljs-string">'in'</span>]
+        params = request[<span class="hljs-string">'params'</span>]
+        <span class="hljs-keyword">print</span> in_, params
+        handler = handlers[in_]  <span class="hljs-comment"># 查找请求处理器</span>
+        handler(conn, params)  <span class="hljs-comment"># 处理请求</span>
+
+
+<span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">loop</span><span class="hljs-params">(sock, handlers)</span>:</span>
+    <span class="hljs-keyword">while</span> <span class="hljs-keyword">True</span>:
+        conn, addr = sock.accept()  <span class="hljs-comment"># 接收连接</span>
+        handle_conn(conn, addr, handlers)  <span class="hljs-comment"># 处理连接</span>
+
+
+<span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">ping</span><span class="hljs-params">(conn, params)</span>:</span>
+    send_result(conn, <span class="hljs-string">"pong"</span>, params)
+
+
+<span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">send_result</span><span class="hljs-params">(conn, out, result)</span>:</span>
+    response = json.dumps({<span class="hljs-string">"out"</span>: out, <span class="hljs-string">"result"</span>: result})  <span class="hljs-comment"># 响应消息体</span>
+    length_prefix = struct.pack(<span class="hljs-string">"I"</span>, len(response))  <span class="hljs-comment"># 响应长度前缀</span>
+    conn.sendall(length_prefix)
+    conn.sendall(response)
+
+
+<span class="hljs-keyword">if</span> __name__ == <span class="hljs-string">'__main__'</span>:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)  <span class="hljs-comment"># 创建一个 TCP 套接字</span>
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, <span class="hljs-number">1</span>)  <span class="hljs-comment"># 打开 reuse addr 选项</span>
+    sock.bind((<span class="hljs-string">"localhost"</span>, <span class="hljs-number">8080</span>)) <span class="hljs-comment"># 绑定端口</span>
+    sock.listen(<span class="hljs-number">1</span>)  <span class="hljs-comment"># 监听客户端连接</span>
+    handlers = {  <span class="hljs-comment"># 注册请求处理器</span>
+        <span class="hljs-string">"ping"</span>: ping
+    }
+    loop(sock, handlers)  <span class="hljs-comment"># 进入服务循环</span>
+</code></pre><p>服务器运行效果</p>
+<pre><code class="hljs sh" lang="sh">bash&gt;  Python blocking_single.py
+(<span class="hljs-string">'127.0.0.1'</span>, 58417) comes
+ping ireader 0
+ping ireader 1
+ping ireader 2
+ping ireader 3
+ping ireader 4
+ping ireader 5
+ping ireader 6
+ping ireader 7
+ping ireader 8
+ping ireader 9
+(<span class="hljs-string">'127.0.0.1'</span>, 58417) <span class="hljs-built_in">bye</span>
+</code></pre><p>客户端运行效果</p>
+<pre><code class="hljs sh" lang="sh">bash&gt; Python client.py
+pong ireader 0
+pong ireader 1
+pong ireader 2
+pong ireader 3
+pong ireader 4
+pong ireader 5
+pong ireader 6
+pong ireader 7
+pong ireader 8
+pong ireader 9
+</code></pre><p>如果在上一个客户端运行期间，再开一个新的客户端，会看到新的客户端没有任何输出。直到前一个客户端运行结束，输出才开始显示出来。因为服务器是串行地处理客户端连接。</p>
+<p>这样的服务器毫无疑问肯定是不会有人用的，如果你家的服务器只能服务一个客户，其它人都得排队，这不是要把人家活活急死么。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/5/19/163761062f0f96b9?w=430&amp;h=316&amp;f=png&amp;s=94455"><figcaption></figcaption></figure><p></p>
+<p>所以，下一节我们将介绍服务器神奇的并发能力。</p>
+<h2 class="heading">作业</h2>
+<p>本节布置一个难度系数较高的作业，请读者实现 Redis 协议的编码和解码。为了完成这个作业，建议读者先去温习一下前面章节学习的 Redis 协议格式。</p>
+<p>不必惧怕困难，越是困难的事情，完成了就越有成就感。</p>

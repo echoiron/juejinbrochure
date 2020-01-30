@@ -1,0 +1,30 @@
+<h1 class="heading">Scrapyd 的安装与启动</h1>
+<p>在第一小节中了解到 Scrapyd 的应用场景与学习的必要性之后，这一节我们就来学习如何安装以及启动 Scrapyd 。</p>
+<h2 class="heading">安装</h2>
+<p>Scrapyd 的安装比较简单，在<a target="_blank" title="官方文档" href="https://scrapyd.readthedocs.io/en/latest/install.html">官方文档</a>的示例中有说明，我们只需要在有 Python 的环境下通过 pip 进行安装即可：</p>
+<pre><code class="hljs script" lang="script">pip install scrapyd
+</code></pre><p></p><figure><img alt="install scrapyd gif" src="https://user-gold-cdn.xitu.io/2018/10/11/16660717d58d9fb8?w=1072&amp;h=650&amp;f=gif&amp;s=1103975"><figcaption></figcaption></figure><p></p>
+<h2 class="heading">启动</h2>
+<p>安装好之后，只需要在 Python 环境下输入命令：</p>
+<pre><code class="hljs script" lang="script">scrapyd
+</code></pre><p></p><figure><img alt="start scrapyd" src="https://user-gold-cdn.xitu.io/2018/10/11/1666074a267d1167?w=1072&amp;h=646&amp;f=gif&amp;s=3080330"><figcaption></figcaption></figure><p></p>
+<p>回车后即可看到 Scrapyd 成功启动并显示的运行信息。</p>
+<pre><code class="hljs Text" lang="Text">2018-10-04T16:45:03+0800 [-] Scrapyd web console available at http://127.0.0.1:6800/
+2018-10-04T16:45:03+0800 [-] Loaded.
+2018-10-04T16:45:03+0800 [twisted.scripts._twistd_unix.UnixAppLogger#info] twistd 18.7.0 (/Users/gannicus/anaconda3/bin/python 3.6.4) starting up.
+2018-10-04T16:45:03+0800 [twisted.scripts._twistd_unix.UnixAppLogger#info] reactor class: twisted.internet.selectreactor.SelectReactor.
+2018-10-04T16:45:03+0800 [-] Site starting on 6800
+2018-10-04T16:45:03+0800 [twisted.web.server.Site#info] Starting factory &lt;twisted.web.server.Site object at 0x107595ba8&gt;
+2018-10-04T16:45:03+0800 [Launcher] Scrapyd 1.2.0 started: max_proc=16, runner='scrapyd.runner'
+</code></pre><p>而后打开浏览器，输入地址：</p>
+<pre><code class="hljs URL" lang="URL">http://localhost:6800
+</code></pre><p></p><figure><img alt="html index" src="https://user-gold-cdn.xitu.io/2018/10/11/1666077df9ec392a?w=1216&amp;h=680&amp;f=gif&amp;s=1486823"><figcaption></figcaption></figure><p></p>
+<p>如果看到下图画面，即代表 Scrapyd 服务已正常运行:</p>
+<p></p><figure><img alt="图1" src="https://user-gold-cdn.xitu.io/2018/10/4/1663e462da8a34d7?w=793&amp;h=336&amp;f=png&amp;s=29694"><figcaption></figcaption></figure><p></p>
+<p>至此，我们就学会了 Scrapyd 的安装与启动。关于 Scrapyd 的常用功能、页面结构等知识点笔者将在后面的小节中介绍。</p>
+<h2 class="heading">用 Scrapyd 在服务器上开启远程访问</h2>
+<p>Scrapyd <strong>默认只允许本机访问</strong>，意味着当你在服务器上使用 Scrapyd 时，如果不开启远程访问，那你在自己的电脑上是无法访问 Scrapyd 的服务的。</p>
+<p>如果是在云服务器(例如阿里云、腾讯云等云服务器或者公司自有的服务器)上想要启动 Scrapyd 并且你可以在任何地方通过<code>ip:6800</code>访问 Scrapyd 服务，则需要在启动前修改 <code>Scrapyd</code> 的配置文件，将<code>bind_address</code>从原来的 127.0.0.1 改为<code>0.0.0.0</code>
+。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/10/11/16660fc26e0cb7c2?w=1244&amp;h=765&amp;f=gif&amp;s=257065"><figcaption></figcaption></figure><p></p>
+<p>Scrapyd 的配置文件路径一般都会放在 Python 环境中包的安装目录内，也就是<code>/site-packages/scrapyd/</code>下，有一个名为<code>default_scrapyd.conf</code>的文件，其中有个设<code>bind_address</code>，将其修改为<code>0.0.0.0</code>后保存，然后在服务器上重启 Scrapyd 服务即可。</p>

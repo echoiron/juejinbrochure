@@ -1,0 +1,81 @@
+<h1 class="heading">为用户处理模块增加 log 管理</h1>
+<p>作为一个程序员，log 管理几乎是必备技能，本小节将在原来代码的基础上，增加 log 管理，以方便调试。进入 log 目录，并创建 users 目录。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/7/1629e7188017afcc?w=853&amp;h=186&amp;f=png&amp;s=18537"><figcaption></figcaption></figure>
+进入 <code>users_views.py</code>，导入 <code>logging</code> 模块，并指定 log 目录文件（<code>log/users/users.log</code>），指定 log 级别（<code>DEBUG</code>）和 log 保留方式（这里设定按天保存，保留 30 天的 log 记录），并在处理方法中加入对应的 log 信息。<p></p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/7/1629e71ad3457ad9?w=534&amp;h=588&amp;f=png&amp;s=38020"><figcaption></figcaption></figure><p></p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/7/1629e71c8fccad36?w=475&amp;h=394&amp;f=png&amp;s=24933"><figcaption></figcaption></figure>
+<code>users_views.py</code> 的完整代码如下：<p></p>
+<pre><code class="hljs python" lang="python"><span class="hljs-comment">#! /usr/bin/python3</span>
+<span class="hljs-comment"># -*- coding:utf-8 -*-</span>
+
+<span class="hljs-keyword">import</span> tornado.web
+<span class="hljs-keyword">from</span> tornado.escape <span class="hljs-keyword">import</span> json_decode
+<span class="hljs-keyword">import</span> logging
+<span class="hljs-keyword">from</span> logging.handlers <span class="hljs-keyword">import</span> TimedRotatingFileHandler
+
+<span class="hljs-comment">#从commons中导入http_response方法</span>
+<span class="hljs-keyword">from</span> common.commons <span class="hljs-keyword">import</span> (
+    http_response,
+)
+
+<span class="hljs-comment">#从配置文件中导入错误码</span>
+<span class="hljs-keyword">from</span> conf.base <span class="hljs-keyword">import</span> (
+    ERROR_CODE,
+)
+ 
+
+<span class="hljs-comment">########## Configure logging #############</span>
+logFilePath = <span class="hljs-string">"log/users/users.log"</span>
+logger = logging.getLogger(<span class="hljs-string">"Users"</span>)  
+logger.setLevel(logging.DEBUG)  
+handler = TimedRotatingFileHandler(logFilePath,  
+                                   when=<span class="hljs-string">"D"</span>,  
+                                   interval=<span class="hljs-number">1</span>,  
+                                   backupCount=<span class="hljs-number">30</span>)  
+formatter = logging.Formatter(<span class="hljs-string">'%(asctime)s \
+%(filename)s[line:%(lineno)d] %(levelname)s %(message)s'</span>,)  
+handler.suffix = <span class="hljs-string">"%Y%m%d"</span>
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+ 
+ 
+<span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">RegistHandle</span><span class="hljs-params">(tornado.web.RequestHandler)</span>:</span>
+    <span class="hljs-string">"""handle /user/regist request
+    :param phone: users sign up phone
+    :param password: users sign up password
+    :param code: users sign up code, must six digital code
+    """</span>
+        
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">post</span><span class="hljs-params">(self)</span>:</span>
+        <span class="hljs-keyword">try</span>:
+            <span class="hljs-comment">#获取入参</span>
+            args = json_decode(self.request.body)
+            phone = args[<span class="hljs-string">'phone'</span>]
+            password = args[<span class="hljs-string">'password'</span>]
+            verify_code = args[<span class="hljs-string">'code'</span>]
+        <span class="hljs-keyword">except</span>:
+            <span class="hljs-comment">#获取入参失败时，抛出错误码及错误信息</span>
+            logger.info(<span class="hljs-string">"RegistHandle: request argument incorrect"</span>)
+            http_response(self, ERROR_CODE[<span class="hljs-string">'1001'</span>], <span class="hljs-number">1001</span>)
+            <span class="hljs-keyword">return</span> 
+            
+        <span class="hljs-comment">#处理成功后，返回成功码“0”及成功信息“ok”</span>
+        logger.debug(<span class="hljs-string">"RegistHandle: regist successfully"</span>)
+        http_response(self, ERROR_CODE[<span class="hljs-string">'0'</span>], <span class="hljs-number">0</span>)
+</code></pre><p>再次执行 <code>main.py</code></p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/7/1629e7200615e2a4?w=998&amp;h=169&amp;f=png&amp;s=25114"><figcaption></figcaption></figure><p></p>
+<p>HTTP 客户端发起正确的注册请求</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/7/1629e721e89630dc?w=760&amp;h=577&amp;f=png&amp;s=25499"><figcaption></figcaption></figure><p></p>
+<p>查看 <code>log/users/users.log</code></p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/7/1629e723ba998464?w=1135&amp;h=191&amp;f=png&amp;s=27275"><figcaption></figcaption></figure><p></p>
+<p>在日志文件中，日志的格式包含时间、文件名、打印代码行数、log 级别和自定义 log 信息。这些信息足以满足问题定位及排错。在前面的配置信息中，我们定义的 log 级别是 <code>DEBUG</code>，下面看看入参出错时，报的 <code>INFO</code> 日志。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/7/1629e72638e45fe7?w=745&amp;h=568&amp;f=png&amp;s=25457"><figcaption></figcaption></figure><p></p>
+<p>查看 <code>log/users/users.log</code></p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/7/1629e7283ad03005?w=1221&amp;h=291&amp;f=png&amp;s=46000"><figcaption></figcaption></figure><p></p>
+<p>这里看到日志文件中多出了一行日志，级别为 INFO。前面我们也提到，我们定义了日志文件的记录保留，本小册由于是新建讲解项目，还无法直接查看日志保留记录。这里贴出之前项目的记录，可以看到历史保留文件是以天为后缀的，当天的文件还是在 <code>users.log</code> 中。</p>
+<p></p><figure><img src="https://user-gold-cdn.xitu.io/2018/4/7/1629e72a64423a2c?w=742&amp;h=450&amp;f=png&amp;s=28047"><figcaption></figcaption></figure><p></p>
+<h2 class="heading">代码下载</h2>
+<p>到目前为止，服务器端代码如下：<br>
+<a target="_blank" href="https://github.com/Jawish185/demo7.git">demo7</a></p>
+<h2 class="heading">小结</h2>
+<p>本小节简单介绍了日志服务在服务器端开发中的应用，开发者可以自定义 log 级别及其历史保留记录。开发者可以根据自己的喜好及习惯，去定义具体的级别和信息。下一小节，我们将讲解如何利用 ORM 的方式和数据库打交道，并将用户注册信息写入数据库中。</p>
